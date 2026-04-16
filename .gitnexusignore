@@ -1,0 +1,11 @@
+node_modules/
+.git/
+dist/
+build/
+*.swift
+*.xcodeproj/
+*.xcworkspace/
+*.xib
+*.storyboard
+Pods/
+DerivedData/

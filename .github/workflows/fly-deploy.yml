@@ -29,6 +29,11 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
+      - name: Copy webshell to container
+        run: flyctl ssh console --app webclaw -C "mkdir -p /app/dist/control-ui/webshell && cp /data/public/shell/index.html /app/dist/control-ui/webshell/index.html"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
       - run: flyctl status --app webclaw
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

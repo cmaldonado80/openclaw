@@ -20,7 +20,7 @@ RCLONE_CONFIG = "/data/.config/rclone/rclone.conf"
 LANGFUSE_HOST = "https://cloud.langfuse.com"
 
 [processes]
-app = "sh -c 'cp -r /data/workspace-backup/* /data/workspace/ 2>/dev/null; chmod 444 /data/workspace/*/SOUL.md /data/workspace/*/AGENTS.md 2>/dev/null; rm -f /data/gateway.*.lock; exec node dist/index.js gateway --allow-unconfigured --port 3000 --bind lan'"
+app = "sh -c 'cp -r /data/workspace-backup/* /data/workspace/ 2>/dev/null; chmod 444 /data/workspace/*/SOUL.md /data/workspace/*/AGENTS.md 2>/dev/null; mkdir -p /app/dist/control-ui/shell && cp -r /data/public/shell/* /app/dist/control-ui/shell/ 2>/dev/null; rm -f /data/gateway.*.lock; exec node dist/index.js gateway --allow-unconfigured --port 3000 --bind lan'"
 
 [http_service]
 internal_port = 3000

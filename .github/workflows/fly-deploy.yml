@@ -34,6 +34,34 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
+      - name: Restore agent configs if missing
+        run: |
+          flyctl ssh console --app webclaw -C "
+          for agent in nexus engineering-lead creative-lead business-lead ops-lead dev-orchestrator design-orchestrator infra-orchestrator qa-orchestrator swiftui-developer; do
+            if [ ! -f /data/workspace/\$agent/SOUL.md ]; then
+              echo Restoring \$agent...
+              cp -r /data/workspace-backup/\$agent/ /data/workspace/\$agent/ 2>/dev/null || true
+            fi
+          done
+          echo Agent check complete"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Fix permissions and update backup
+        run: |
+          flyctl ssh console --app webclaw -C "
+          chmod 444 /data/workspace/*/SOUL.md /data/workspace/*/AGENTS.md 2>/dev/null || true
+          cp -r /data/workspace/ /data/workspace-backup/ 2>/dev/null || true
+          rm -f /data/gateway.*.lock 2>/dev/null || true
+          echo Permissions and backup done"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Verify gateway healthy
+        run: |
+          sleep 10
+          curl -f --max-time 15 https://webclaw.fly.dev/health || echo "Health check warning - gateway may still be starting"
+
       - run: flyctl status --app webclaw
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

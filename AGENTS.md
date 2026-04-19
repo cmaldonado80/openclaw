@@ -22,6 +22,56 @@ fly ssh console --app webclaw -C "bash /data/scripts/pre-deploy-check.sh"
 4. Upload via SFTP: `fly sftp shell --app webclaw` then `put`
 5. Verify all 9 sections intact: `_RULES`, `gateway`, `agents`, `session`, `plugins`, `channels`, `models`, `diagnostics`, `tools`
 
+## CRITICAL: Never run openclaw CLI via SSH
+NEVER: `fly ssh console --app webclaw -C "openclaw <cmd>"`
+The CLI blocks on TTY/stdin, spawns a runaway process (~485MB RSS), and takes down the Fly health check.
+
+USE INSTEAD:
+- WebShell: https://main.mghm.ai/webshell
+- Telegram: @Cabezon1Bot
+- Control UI: https://main.mghm.ai
+- HTTP API calls via curl (with `Authorization: Bearer $OPENCLAW_GATEWAY_PASSWORD`)
+
+If a runaway `openclaw` process exists on the server (check `ps auxww | grep openclaw | grep -v gateway`), force-kill it with `kill -9 <PID>` to restore the health check.
+
+## OpenAI Codex OAuth Boot Hang Fix
+If the gateway hangs at boot with `CODEX_HOME` set (stuck at `[gateway] resolving authentication…` for >3 min; health check fails; port 3000 unbound):
+
+1. **Unblock boot** — unset the secret, which forces a restart without codex OAuth resolution:
+   ```
+   fly secrets unset CODEX_HOME --app webclaw
+   ```
+2. **Wait for healthy boot** (~40–50 s):
+   ```
+   curl https://main.mghm.ai/health
+   ```
+   Expect HTTP 200 with `{"ok":true,"status":"live"}`.
+3. **Re-enable codex OAuth once the gateway is up**:
+   ```
+   fly secrets set CODEX_HOME=/data/.codex --app webclaw
+   ```
+   Subsequent boot is usually fast (~50 s) because auth resolution succeeds once external OpenAI endpoints respond.
+
+### Token refresh
+Token in `/data/.codex/auth.json` expires every ~62 h. When you see `synced openai-codex credentials from external cli` stop appearing every 2 h in logs, or codex requests start failing with auth errors, re-auth locally and re-upload:
+
+1. Locally: `openclaw models auth login --provider openai-codex` (paste redirect URL when prompted — opens browser).
+2. Re-upload:
+   ```
+   echo "put /Users/cmaldonado/.codex/auth.json /data/.codex/auth.json.new" | fly sftp shell --app webclaw
+   fly ssh console --app webclaw -C "sh -c 'mv /data/.codex/auth.json.new /data/.codex/auth.json && chown node:node /data/.codex/auth.json && chmod 600 /data/.codex/auth.json'"
+   ```
+   No gateway restart required — the provider re-reads the file on each invocation.
+
+### n8n Health Monitor auto-recovery (to wire up)
+The n8n Health Monitor workflow should implement this boot-hang guard:
+- Poll `https://main.mghm.ai/health` every 30 s.
+- If health fails for >3 min continuously AND the machine state is `started` (i.e. proxy reports `[PR01] no known healthy instances`, gateway hung internally):
+  1. Call `flyctl secrets unset CODEX_HOME --app webclaw` (machine restarts automatically).
+  2. Telegram-notify operator: "Gateway hung at codex OAuth, temporarily disabled codex. Reauth if needed."
+  3. After `/health` returns 200 for 3 consecutive polls, call `flyctl secrets set CODEX_HOME=/data/.codex --app webclaw` to restore codex.
+  4. Telegram-notify "codex restored" or "codex re-enable failed — manual reauth required" on second hang.
+
 ---
 
 # Repository Guidelines

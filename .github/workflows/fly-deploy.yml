@@ -34,6 +34,16 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
+      - name: Copy graphify-out to container
+        run: flyctl ssh console --app webclaw -C "mkdir -p /app/dist/control-ui/graphify && cp /data/graphify-out/GRAPH_REPORT.md /app/dist/control-ui/graphify/ && cp /data/graphify-out/graph.json /app/dist/control-ui/graphify/"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Copy workspace-static to container
+        run: flyctl ssh console --app webclaw -C "mkdir -p /app/dist/control-ui/workspace && cp -r /data/workspace-static/. /app/dist/control-ui/workspace/ && find /app/dist/control-ui/workspace -name '._*' -delete"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
       - name: Restore agent configs if missing
         run: |
           flyctl ssh console --app webclaw -C "

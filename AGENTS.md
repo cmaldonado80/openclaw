@@ -34,34 +34,53 @@ USE INSTEAD:
 
 If a runaway `openclaw` process exists on the server (check `ps auxww | grep openclaw | grep -v gateway`), force-kill it with `kill -9 <PID>` to restore the health check.
 
-## OpenAI Codex OAuth Boot Hang Fix
-If the gateway hangs at boot with `CODEX_HOME` set (stuck at `[gateway] resolving authentication…` for >3 min; health check fails; port 3000 unbound):
+## OpenAI Codex OAuth (native, auto-refreshing)
 
-1. **Unblock boot** — unset the secret, which forces a restart without codex OAuth resolution:
-   ```
-   fly secrets unset CODEX_HOME --app webclaw
-   ```
-2. **Wait for healthy boot** (~40–50 s):
-   ```
-   curl https://main.mghm.ai/health
-   ```
-   Expect HTTP 200 with `{"ok":true,"status":"live"}`.
-3. **Re-enable codex OAuth once the gateway is up**:
-   ```
-   fly secrets set CODEX_HOME=/data/.codex --app webclaw
-   ```
-   Subsequent boot is usually fast (~50 s) because auth resolution succeeds once external OpenAI endpoints respond.
+Codex authentication is managed natively by OpenClaw's nexus agent at `/data/agents/nexus/auth-profiles.json`. Access tokens are refreshed automatically using the stored refresh token — no periodic manual re-auth required.
 
-### Token refresh
-Token in `/data/.codex/auth.json` expires every ~62 h. When you see `synced openai-codex credentials from external cli` stop appearing every 2 h in logs, or codex requests start failing with auth errors, re-auth locally and re-upload:
+### ⚠️ Required env var: `CODEX_HOME=/data/.codex`
 
-1. Locally: `openclaw models auth login --provider openai-codex` (paste redirect URL when prompted — opens browser).
-2. Re-upload:
-   ```
-   echo "put /Users/cmaldonado/.codex/auth.json /data/.codex/auth.json.new" | fly sftp shell --app webclaw
-   fly ssh console --app webclaw -C "sh -c 'mv /data/.codex/auth.json.new /data/.codex/auth.json && chown node:node /data/.codex/auth.json && chmod 600 /data/.codex/auth.json'"
-   ```
-   No gateway restart required — the provider re-reads the file on each invocation.
+**Never unset `CODEX_HOME`.** Even with native `auth-profiles.json` in place as the OAuth source of truth, the gateway consults `CODEX_HOME` during boot (model-pricing bootstrap, provider warmup). With `CODEX_HOME` unset, the gateway emits `starting HTTP server…` but never actually binds port 3000 — `model-pricing bootstrap failed: TimeoutError` in the logs is the signature. The directory `/data/.codex/` can be empty (no `auth.json` needed); only the env var must be set.
+
+### First-time / after-rotation setup
+
+If the profile is missing, empty, or has been revoked:
+
+```
+fly ssh console --app webclaw        # interactive shell (real TTY)
+openclaw models auth login --provider openai-codex
+# OAuth URL prints; open it locally, approve, paste redirect URL back
+exit
+# IMPORTANT: chown the config — see next section
+fly ssh console --app webclaw -C "chown 1000:1000 /data/openclaw.json"
+```
+
+### ⚠️ `openclaw models auth login` rewrites `/data/openclaw.json` as root
+
+The CLI rewrites the config file when completing OAuth. Inside an interactive `fly ssh console` session (which runs as `root`), that leaves `/data/openclaw.json` owned `root:root` — the gateway's node-user (UID 1000) can no longer read it. Next restart crashloops with `EACCES: permission denied, open '/data/openclaw.json'`. **Always `chown 1000:1000 /data/openclaw.json` after running the auth command.**
+
+### Boot-hang recovery
+
+If the gateway hangs at boot (`starting HTTP server…` then port 3000 never binds; `/health` fails):
+
+1. Check `CODEX_HOME` is set: `fly secrets list --app webclaw | grep CODEX_HOME`. If missing, `fly secrets set CODEX_HOME=/data/.codex --app webclaw` and wait for the rolling restart.
+2. If still broken, check `/data/openclaw.json` ownership is UID 1000; fix with `chown 1000:1000 /data/openclaw.json` via SSH.
+3. If the hang persists and logs show `resolving authentication…` stuck >3 min, delete the profile to unblock: `rm /data/agents/nexus/auth-profiles.json`, restart, then re-run the OAuth flow above.
+
+### Runaway `openclaw-models` process
+
+Boot occasionally leaves a stuck `openclaw-models` subprocess (~500 MB RSS) that blocks the gateway from binding port 3000. Detect and clear:
+
+```
+fly ssh console --app webclaw -C "bash -c 'ps auxww | grep openclaw-models | grep -v grep'"
+# if found:
+fly ssh console --app webclaw -C "kill -9 <PID>"
+```
+
+### What's **no longer relevant**
+
+- The `/data/.codex/auth.json` file (legacy CLI-sync target) — the native `auth-profiles.json` supersedes it. Refresh tokens are stored natively, auto-refreshed, no 62 h manual SFTP cycle.
+- The log line `synced openai-codex credentials from external cli` — no longer expected; absence is not a problem.
 
 ### n8n Health Monitor auto-recovery (to wire up)
 The n8n Health Monitor workflow should implement this boot-hang guard:

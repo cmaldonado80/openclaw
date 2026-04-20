@@ -1,0 +1,21 @@
+app = "webclaw-notes"
+primary_region = "dfw"
+
+[build]
+image = "ghcr.io/silverbulletmd/silverbullet:latest"
+
+[env]
+SB_PORT = "3000"
+
+[[mounts]]
+source = "notes_data"
+destination = "/space"
+
+[http_service]
+internal_port = 3000
+force_https = true
+auto_stop_machines = false
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "512mb"

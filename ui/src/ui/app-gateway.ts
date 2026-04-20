@@ -93,6 +93,7 @@ type GatewayHost = {
   sessionKey: string;
   chatRunId: string | null;
   refreshSessionsAfterChat: Set<string>;
+  sessionsChangedReloadTimer: number | null;
   execApprovalQueue: ExecApprovalRequest[];
   execApprovalError: string | null;
   updateAvailable: UpdateAvailable | null;
@@ -398,6 +399,16 @@ function handleTerminalChatEvent(
   return false;
 }
 
+function scheduleSessionsReload(host: GatewayHost, delayMs = 750) {
+  if (host.sessionsChangedReloadTimer != null) {
+    return;
+  }
+  host.sessionsChangedReloadTimer = window.setTimeout(() => {
+    host.sessionsChangedReloadTimer = null;
+    void loadSessions(host as unknown as SessionsState);
+  }, delayMs);
+}
+
 function handleChatGatewayEvent(host: GatewayHost, payload: ChatEventPayload | undefined) {
   if (payload?.sessionKey) {
     setLastActiveSessionKey(
@@ -529,7 +540,7 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
   }
 
   if (evt.event === "sessions.changed") {
-    void loadSessions(host as unknown as SessionsState);
+    scheduleSessionsReload(host);
     return;
   }
 

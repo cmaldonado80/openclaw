@@ -68,6 +68,7 @@ function createHost() {
     logsEntries: [],
     popStateHandler: vi.fn(),
     topbarObserver: null,
+    sessionsChangedReloadTimer: null,
   };
 }
 

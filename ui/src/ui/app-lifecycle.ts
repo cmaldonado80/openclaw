@@ -58,7 +58,9 @@ export function handleConnected(host: LifecycleHost) {
     }
     connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
   });
-  startNodesPolling(host as unknown as Parameters<typeof startNodesPolling>[0]);
+  if (host.tab === "nodes") {
+    startNodesPolling(host as unknown as Parameters<typeof startNodesPolling>[0]);
+  }
   if (host.tab === "logs") {
     startLogsPolling(host as unknown as Parameters<typeof startLogsPolling>[0]);
   }

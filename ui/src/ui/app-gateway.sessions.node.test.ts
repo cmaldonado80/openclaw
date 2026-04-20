@@ -114,7 +114,7 @@ describe("handleGatewayEvent sessions.changed", () => {
     vi.useRealTimers();
   });
 
-  it("debounces session reloads when the gateway pushes sessions.changed events", () => {
+  it("debounces session reloads on overview and sessions tabs", () => {
     vi.useFakeTimers();
     loadSessionsMock.mockReset();
     const host = createHost();
@@ -138,6 +138,24 @@ describe("handleGatewayEvent sessions.changed", () => {
     vi.advanceTimersByTime(1);
     expect(loadSessionsMock).toHaveBeenCalledTimes(1);
     expect(loadSessionsMock).toHaveBeenCalledWith(host);
+    expect(host.sessionsChangedReloadTimer).toBeNull();
+  });
+
+  it("ignores sessions.changed reloads on chat tab", () => {
+    vi.useFakeTimers();
+    loadSessionsMock.mockReset();
+    const host = createHost();
+    host.tab = "chat";
+
+    handleGatewayEvent(host, {
+      type: "event",
+      event: "sessions.changed",
+      payload: { sessionKey: "agent:main:main", reason: "patch" },
+      seq: 1,
+    });
+
+    vi.advanceTimersByTime(1000);
+    expect(loadSessionsMock).not.toHaveBeenCalled();
     expect(host.sessionsChangedReloadTimer).toBeNull();
   });
 });

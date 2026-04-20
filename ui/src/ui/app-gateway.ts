@@ -399,8 +399,12 @@ function handleTerminalChatEvent(
   return false;
 }
 
+function shouldReloadSessionsForEvent(host: GatewayHost): boolean {
+  return host.tab === "overview" || host.tab === "sessions";
+}
+
 function scheduleSessionsReload(host: GatewayHost, delayMs = 750) {
-  if (host.sessionsChangedReloadTimer != null) {
+  if (!shouldReloadSessionsForEvent(host) || host.sessionsChangedReloadTimer != null) {
     return;
   }
   host.sessionsChangedReloadTimer = window.setTimeout(() => {

@@ -1652,7 +1652,83 @@ describe("CodexAppServerEventProjector", () => {
     });
   });
 
-  it("fails closed when a native tool call finishes without a matching result", async () => {
+  it("repairs missing native tool results without surfacing a prompt error by default", async () => {
+    const trajectoryRecorder = {
+      filePath: "trajectory.jsonl",
+      recordEvent: vi.fn(),
+      flush: vi.fn(async () => undefined),
+    };
+    const projector = await createProjector(await createParams(), { trajectoryRecorder });
+
+    await projector.handleNotification(
+      forCurrentTurn("item/started", {
+        item: {
+          type: "commandExecution",
+          id: "cmd-denied",
+          command: "node scripts/report.js --publish",
+          cwd: "/workspace",
+          processId: null,
+          source: "agent",
+          status: "inProgress",
+          commandActions: [],
+          aggregatedOutput: null,
+          exitCode: null,
+          durationMs: null,
+        },
+      }),
+    );
+    await projector.handleNotification(
+      turnCompleted([
+        {
+          type: "agentMessage",
+          id: "msg-denied",
+          text: "The requested publish command was denied before execution.",
+        },
+      ]),
+    );
+
+    const result = projector.buildResult(buildEmptyToolTelemetry());
+
+    expect(result.promptError).toBeNull();
+    expect(result.promptErrorSource).toBeNull();
+    expect(result.messagesSnapshot.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "toolResult",
+      "assistant",
+    ]);
+    const toolResultMessage = requireRecord(result.messagesSnapshot[2], "tool result message");
+    expect(toolResultMessage.toolCallId).toBe("cmd-denied");
+    expect(toolResultMessage.toolName).toBe("bash");
+    expect(toolResultMessage.isError).toBe(true);
+    const toolResultContent = requireArray(toolResultMessage.content, "tool result content");
+    expect(JSON.stringify(toolResultContent)).toContain("matching tool.result");
+    expect(trajectoryRecorder.recordEvent).toHaveBeenCalledWith("tool.call", {
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+      itemId: "cmd-denied",
+      toolCallId: "cmd-denied",
+      name: "bash",
+      arguments: {
+        command: "node scripts/report.js --publish",
+        cwd: "/workspace",
+      },
+    });
+    expect(trajectoryRecorder.recordEvent).toHaveBeenCalledWith("tool.result", {
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+      itemId: "cmd-denied",
+      toolCallId: "cmd-denied",
+      name: "bash",
+      status: "failed",
+      isError: true,
+      result: { status: "failed", reason: "missing_tool_result" },
+      output: expect.stringContaining("without a matching tool.result"),
+    });
+  });
+
+  it("fails closed on missing native tool results when explicitly enabled", async () => {
+    vi.stubEnv("OPENCLAW_CODEX_FAIL_CLOSED_MISSING_TOOL_RESULTS", "1");
     const trajectoryRecorder = {
       filePath: "trajectory.jsonl",
       recordEvent: vi.fn(),
@@ -1697,34 +1773,13 @@ describe("CodexAppServerEventProjector", () => {
       "toolResult",
       "assistant",
     ]);
-    const toolResultMessage = requireRecord(result.messagesSnapshot[2], "tool result message");
-    expect(toolResultMessage.toolCallId).toBe("cmd-denied");
-    expect(toolResultMessage.toolName).toBe("bash");
-    expect(toolResultMessage.isError).toBe(true);
-    const toolResultContent = requireArray(toolResultMessage.content, "tool result content");
-    expect(JSON.stringify(toolResultContent)).toContain("matching tool.result");
-    expect(trajectoryRecorder.recordEvent).toHaveBeenCalledWith("tool.call", {
-      threadId: THREAD_ID,
-      turnId: TURN_ID,
-      itemId: "cmd-denied",
-      toolCallId: "cmd-denied",
-      name: "bash",
-      arguments: {
-        command: "node scripts/report.js --publish",
-        cwd: "/workspace",
-      },
-    });
-    expect(trajectoryRecorder.recordEvent).toHaveBeenCalledWith("tool.result", {
-      threadId: THREAD_ID,
-      turnId: TURN_ID,
-      itemId: "cmd-denied",
-      toolCallId: "cmd-denied",
-      name: "bash",
-      status: "failed",
-      isError: true,
-      result: { status: "failed", reason: "missing_tool_result" },
-      output: expect.stringContaining("without a matching tool.result"),
-    });
+    expect(trajectoryRecorder.recordEvent).toHaveBeenCalledWith(
+      "tool.result",
+      expect.objectContaining({
+        itemId: "cmd-denied",
+        output: expect.stringContaining("without a matching tool.result"),
+      }),
+    );
   });
 
   it("uses streamed command output when final command snapshots omit aggregated output", async () => {

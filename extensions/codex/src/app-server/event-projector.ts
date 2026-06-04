@@ -1490,12 +1490,14 @@ export class CodexAppServerEventProjector {
       });
     }
 
-    const missingCount = new Set([...missingTranscriptIds, ...missingTrajectoryIds]).size;
-    this.synthesizedMissingToolResultError =
-      missingCount === 1
-        ? MISSING_TOOL_RESULT_ERROR
-        : `${MISSING_TOOL_RESULT_ERROR} missingToolResultCount=${missingCount}`;
-    this.promptErrorSource = this.promptErrorSource ?? "prompt";
+    if (process.env.OPENCLAW_CODEX_FAIL_CLOSED_MISSING_TOOL_RESULTS === "1") {
+      const missingCount = new Set([...missingTranscriptIds, ...missingTrajectoryIds]).size;
+      this.synthesizedMissingToolResultError =
+        missingCount === 1
+          ? MISSING_TOOL_RESULT_ERROR
+          : `${MISSING_TOOL_RESULT_ERROR} missingToolResultCount=${missingCount}`;
+      this.promptErrorSource = this.promptErrorSource ?? "prompt";
+    }
   }
 
   private emitTranscriptToolCallProgress(params: ToolTranscriptCallInput): void {

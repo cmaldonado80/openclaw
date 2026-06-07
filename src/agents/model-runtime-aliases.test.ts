@@ -28,6 +28,18 @@ function createAnthropicAuthConfig(params: {
   } as OpenClawConfig;
 }
 
+function createOpenAiAuthConfig(params: {
+  models?: NonNullable<NonNullable<OpenClawConfig["agents"]>["defaults"]>["models"];
+}): OpenClawConfig {
+  return {
+    agents: {
+      defaults: {
+        models: params.models,
+      },
+    },
+  } as OpenClawConfig;
+}
+
 describe("resolveCliRuntimeExecutionProvider", () => {
   beforeEach(() => {
     cliBackendsTesting.setDepsForTest({
@@ -44,6 +56,12 @@ describe("resolveCliRuntimeExecutionProvider", () => {
           modelProvider: "anthropic",
           pluginId: "anthropic",
           config: { command: "claude" },
+        },
+        {
+          id: "codex",
+          modelProvider: "openai",
+          pluginId: "openai",
+          config: { command: "codex" },
         },
       ],
     });
@@ -124,6 +142,21 @@ describe("resolveCliRuntimeExecutionProvider", () => {
         modelId: "opus-4.7",
       }),
     ).toBe("claude-cli");
+  });
+
+  it("routes OpenAI execution to Codex when the selected model is configured with agentRuntime=codex", () => {
+    expect(
+      resolveCliRuntimeExecutionProvider({
+        cfg: createOpenAiAuthConfig({
+          models: {
+            "openai/gpt-5.5": { agentRuntime: { id: "codex" } },
+          },
+        }),
+        provider: "openai",
+        modelId: "gpt-5.5",
+        agentId: "platform-engineering-orchestrator",
+      }),
+    ).toBe("codex");
   });
 
   it("does not return a CLI runtime when the matched entry's provider is incompatible with the runtime alias", () => {

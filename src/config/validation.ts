@@ -67,6 +67,13 @@ type AllowedValuesCollection = {
 };
 type JsonSchemaLike = Record<string, unknown>;
 
+function hasExplicitMemoryCoreDreamingConfig(pluginId: string, entryConfig: unknown): boolean {
+  if (pluginId !== "memory-core" || !isRecord(entryConfig)) {
+    return false;
+  }
+  return isRecord(entryConfig.dreaming);
+}
+
 function stripDeprecatedValidationKeys(raw: unknown): unknown {
   if (!isRecord(raw) || !isRecord(raw.commands) || !Object.hasOwn(raw.commands, "modelsWrite")) {
     return raw;
@@ -1909,7 +1916,8 @@ function validateConfigObjectWithPluginsBase(
     }
 
     const suppressDisabledConfigWarning =
-      ensureCompatPluginIds().has(pluginId) && !ensureOverriddenPluginIds().has(pluginId);
+      (ensureCompatPluginIds().has(pluginId) && !ensureOverriddenPluginIds().has(pluginId)) ||
+      hasExplicitMemoryCoreDreamingConfig(pluginId, entry?.config);
     if (!enabled && entryHasConfig && !suppressDisabledConfigWarning) {
       warnings.push({
         path: `plugins.entries.${pluginId}`,

@@ -294,6 +294,40 @@ describe("memory dreaming host helpers", () => {
     });
   });
 
+  it("prefers explicit memory-core dreaming config while another plugin owns the memory slot", () => {
+    expect(
+      resolveMemoryDreamingPluginConfig({
+        plugins: {
+          slots: {
+            memory: "memory-lancedb",
+          },
+          entries: {
+            "memory-core": {
+              config: {
+                dreaming: {
+                  enabled: true,
+                  frequency: "0 3 * * *",
+                },
+              },
+            },
+            "memory-lancedb": {
+              config: {
+                embedding: {
+                  provider: "ollama",
+                },
+              },
+            },
+          },
+        },
+      } as OpenClawConfig),
+    ).toEqual({
+      dreaming: {
+        enabled: true,
+        frequency: "0 3 * * *",
+      },
+    });
+  });
+
   it("falls back to memory-core when no memory slot override is configured", () => {
     expect(
       resolveMemoryDreamingPluginConfig({

@@ -353,9 +353,15 @@ export function resolveMemoryDreamingPluginConfig(
   const root = asNullableRecord(cfg);
   const plugins = asNullableRecord(root?.plugins);
   const entries = asNullableRecord(plugins?.entries);
+  const memoryCore = asNullableRecord(entries?.[DEFAULT_MEMORY_DREAMING_PLUGIN_ID]);
+  const memoryCoreConfig = asNullableRecord(memoryCore?.config);
+  if (memoryCoreConfig && asNullableRecord(memoryCoreConfig.dreaming)) {
+    return memoryCoreConfig;
+  }
   const pluginId = resolveMemoryDreamingPluginId(cfg);
   const memoryPlugin = asNullableRecord(entries?.[pluginId]);
-  return asNullableRecord(memoryPlugin?.config) ?? undefined;
+  const memoryPluginConfig = asNullableRecord(memoryPlugin?.config);
+  return memoryPluginConfig ?? undefined;
 }
 
 /** @deprecated Use resolveMemoryDreamingPluginConfig. */

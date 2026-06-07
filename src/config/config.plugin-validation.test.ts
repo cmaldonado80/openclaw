@@ -1388,6 +1388,36 @@ describe("config plugin validation", () => {
     });
   });
 
+  it("allows memory-core dreaming config while another memory plugin owns the slot", () => {
+    const res = validateInSuite({
+      agents: { list: [{ id: "openclaw" }] },
+      plugins: {
+        allow: ["memory-core", "memory-lancedb"],
+        slots: { memory: "memory-lancedb" },
+        entries: {
+          "memory-core": {
+            enabled: true,
+            config: {
+              dreaming: {
+                enabled: true,
+                frequency: "0 3 * * *",
+              },
+            },
+          },
+          "memory-lancedb": { enabled: true },
+        },
+      },
+    });
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.warnings).not.toContainEqual({
+        path: "plugins.entries.memory-core",
+        message: 'plugin disabled (memory slot set to "memory-lancedb") but config is present',
+      });
+    }
+  });
+
   it("ignores standalone helper scripts in auto-discovered global extensions", async () => {
     const helperPath = path.join(suiteHome, ".openclaw", "extensions", "my-helper.mjs");
     await mkdirSafe(path.dirname(helperPath));

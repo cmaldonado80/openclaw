@@ -7342,7 +7342,7 @@ module.exports = {
           fs.writeFileSync(
             path.join(memoryCoreDir, "openclaw.plugin.json"),
             JSON.stringify(
-              { id: "memory-core", kind: "memory", configSchema: EMPTY_PLUGIN_SCHEMA },
+              { id: "memory-core", kind: "memory", configSchema: openSchema },
               null,
               2,
             ),
@@ -7366,8 +7366,8 @@ module.exports = {
                 allow: ["memory-core", "memory-lancedb"],
                 slots: { memory: "memory-lancedb" },
                 entries: {
-                  "memory-core": { enabled: true },
-                  "memory-lancedb": { enabled: true, config: { dreaming: { enabled: true } } },
+                  "memory-core": { enabled: true, config: { dreaming: { enabled: true } } },
+                  "memory-lancedb": { enabled: true },
                 },
               },
             },

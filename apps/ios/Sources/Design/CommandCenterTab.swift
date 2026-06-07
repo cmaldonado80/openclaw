@@ -35,6 +35,15 @@ struct CommandCenterTab: View {
         let color: Color
     }
 
+    struct ReadinessItem: Identifiable {
+        let id: String
+        let icon: String
+        let title: String
+        let detail: String
+        let value: String
+        let color: Color
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -44,6 +53,7 @@ struct CommandCenterTab: View {
                     VStack(alignment: .leading, spacing: 10) {
                         self.header
                         self.gatewayCard
+                        self.controlReadiness
                         self.pendingApprovals
                         self.activeTasks
                         self.liveActivity
@@ -150,6 +160,90 @@ struct CommandCenterTab: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
+    }
+
+    private var controlReadiness: some View {
+        CommandPanel(padding: 0) {
+            VStack(spacing: 0) {
+                self.cardHeader(
+                    title: "Control readiness",
+                    value: self.readinessSummaryText,
+                    color: self.readinessSummaryColor)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 8)
+
+                HStack(spacing: 8) {
+                    self.entryPointButton(
+                        title: "Today",
+                        icon: "calendar",
+                        color: OpenClawBrand.accent,
+                        action: self.openToday)
+                    self.entryPointButton(
+                        title: "Status",
+                        icon: "gauge.with.dots.needle.67percent",
+                        color: self.readinessSummaryColor,
+                        action: self.openSettings)
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(self.readinessItems.enumerated()), id: \.element.id) { index, item in
+                        CommandReadinessRow(item: item)
+                        if index < self.readinessItems.count - 1 {
+                            Divider().padding(.leading, 48)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+                .background {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(self.approvalRowsFill)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(
+                                    Color.primary.opacity(self.colorScheme == .dark ? 0.08 : 0.04),
+                                    lineWidth: 1)
+                        }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+            }
+        }
+        .padding(.horizontal, OpenClawProMetric.pagePadding)
+    }
+
+    private func entryPointButton(
+        title: String,
+        icon: String,
+        color: Color,
+        action: @escaping () -> Void) -> some View
+    {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: icon)
+                    .font(.caption.weight(.bold))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.bold))
+            }
+            .foregroundStyle(color)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 39)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(color.opacity(self.colorScheme == .dark ? 0.14 : 0.09))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(color.opacity(self.colorScheme == .dark ? 0.26 : 0.16), lineWidth: 1)
+                    }
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var pendingApprovals: some View {
@@ -367,6 +461,115 @@ struct CommandCenterTab: View {
         self.gatewayConnected ? OpenClawBrand.ok : .secondary
     }
 
+    private var readinessSummaryText: String {
+        Self.controlReadinessSummary(
+            gatewayConnected: self.gatewayConnected,
+            isOperatorConnected: self.appModel.isOperatorGatewayConnected,
+            issue: self.gatewayConnectionIssue,
+            activeSessionCount: self.activeSessionRows.count)
+    }
+
+    private var readinessSummaryColor: Color {
+        if self.gatewayConnectionIssue != .none { return OpenClawBrand.warn }
+        if self.gatewayConnected, self.appModel.isOperatorGatewayConnected { return OpenClawBrand.ok }
+        return .secondary
+    }
+
+    private var readinessItems: [ReadinessItem] {
+        [
+            ReadinessItem(
+                id: "gateway-health",
+                icon: self.gatewayConnected ? "checkmark.seal.fill" : "wifi.exclamationmark",
+                title: "Gateway health",
+                detail: self.gatewayHealthDetail,
+                value: self.gatewayConnected ? "online" : self.gatewayStateText.lowercased(),
+                color: self.gatewayConnected ? OpenClawBrand.ok : .secondary),
+            ReadinessItem(
+                id: "session-control",
+                icon: self.appModel.isOperatorGatewayConnected ? "rectangle.stack.fill" : "rectangle.stack.badge.minus",
+                title: "Session control",
+                detail: self.sessionControlDetail,
+                value: self.appModel.isOperatorGatewayConnected ? "ready" : "offline",
+                color: self.appModel.isOperatorGatewayConnected ? OpenClawBrand.ok : .secondary),
+            ReadinessItem(
+                id: "auth-blockers",
+                icon: self.gatewayBlockerIcon,
+                title: "Auth blockers",
+                detail: self.gatewayBlockerDetail,
+                value: self.gatewayBlockerValue,
+                color: self.gatewayBlockerColor),
+        ]
+    }
+
+    private var gatewayConnectionIssue: GatewayConnectionIssue {
+        let problemIssue = GatewayConnectionIssue.detect(problem: self.appModel.lastGatewayProblem)
+        if problemIssue != .none { return problemIssue }
+        return GatewayConnectionIssue.detect(from: self.appModel.gatewayDisplayStatusText)
+    }
+
+    private var gatewayHealthDetail: String {
+        if self.gatewayConnected {
+            return self.gatewaySubtitle
+        }
+        return self.gatewayDisplayStatusValue
+    }
+
+    private var sessionControlDetail: String {
+        if self.appModel.isOperatorGatewayConnected {
+            let count = self.activeSessionRows.count
+            if count == 0 { return "Today chat can start a fresh session." }
+            return "\(count) \(count == 1 ? "entry" : "entries") available from Today."
+        }
+        return "Session actions unlock after the operator link connects."
+    }
+
+    private var gatewayBlockerIcon: String {
+        switch self.gatewayConnectionIssue {
+        case .none:
+            "lock.open.fill"
+        case .pairingRequired:
+            "person.badge.key.fill"
+        case .tokenMissing, .unauthorized:
+            "key.fill"
+        case .network:
+            "network.slash"
+        case .unknown:
+            "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var gatewayBlockerDetail: String {
+        Self.gatewayBlockerText(
+            issue: self.gatewayConnectionIssue,
+            statusText: self.gatewayDisplayStatusValue)
+    }
+
+    private var gatewayBlockerValue: String {
+        switch self.gatewayConnectionIssue {
+        case .none:
+            "clear"
+        case .pairingRequired:
+            "pairing"
+        case .tokenMissing, .unauthorized:
+            "auth"
+        case .network:
+            "network"
+        case .unknown:
+            "review"
+        }
+    }
+
+    private var gatewayBlockerColor: Color {
+        switch self.gatewayConnectionIssue {
+        case .none:
+            self.gatewayConnected ? OpenClawBrand.ok : .secondary
+        case .pairingRequired, .network:
+            OpenClawBrand.warn
+        case .tokenMissing, .unauthorized, .unknown:
+            OpenClawBrand.danger
+        }
+    }
+
     private var gatewayAddressText: String {
         self.normalized(self.appModel.gatewayRemoteAddress)
             ?? self.normalized(self.appModel.gatewayServerName)
@@ -546,6 +749,14 @@ struct CommandCenterTab: View {
         }
     }
 
+    private func openToday() {
+        let sessionKey = self.activeChatSessions
+            .first(where: { !Self.isHiddenInternalSession($0.key) })?
+            .key
+        self.appModel.openChat(sessionKey: sessionKey)
+        self.openChat()
+    }
+
     private func refreshActiveSessionsIfNeeded() async {
         guard self.scenePhase == .active else { return }
         guard self.appModel.isOperatorGatewayConnected else {
@@ -664,6 +875,37 @@ struct CommandCenterTab: View {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         return trimmed == "onboarding" || trimmed.hasSuffix(":onboarding")
+    }
+
+    static func controlReadinessSummary(
+        gatewayConnected: Bool,
+        isOperatorConnected: Bool,
+        issue: GatewayConnectionIssue,
+        activeSessionCount: Int) -> String
+    {
+        if issue != .none { return "Needs attention" }
+        if gatewayConnected, isOperatorConnected {
+            return activeSessionCount == 0 ? "Ready" : "\(activeSessionCount) ready"
+        }
+        if gatewayConnected { return "Gateway only" }
+        return "Offline"
+    }
+
+    static func gatewayBlockerText(issue: GatewayConnectionIssue, statusText: String) -> String {
+        switch issue {
+        case .none:
+            "No auth or pairing blocker detected."
+        case let .pairingRequired(requestId):
+            requestId.map { "Pairing approval waiting for request \($0)." } ?? "Pairing approval is waiting."
+        case .tokenMissing:
+            "Add a gateway auth token in Settings."
+        case .unauthorized:
+            "Update rejected gateway credentials in Settings."
+        case .network:
+            statusText
+        case let .unknown(message):
+            message.isEmpty ? statusText : message
+        }
     }
 
     private var gatewaySubtitle: String {

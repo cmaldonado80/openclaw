@@ -182,6 +182,41 @@ struct CommandApprovalRow: View {
     }
 }
 
+struct CommandReadinessRow: View {
+    let item: CommandCenterTab.ReadinessItem
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: self.item.icon)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(self.item.color)
+                .frame(width: 30, height: 30)
+                .background {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(self.item.color.opacity(0.11))
+                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(self.item.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(self.item.detail)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text(self.item.value)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(self.item.color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: 58, alignment: .trailing)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+    }
+}
+
 struct CommandEmptyStateRow: View {
     let icon: String
     let title: String

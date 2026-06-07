@@ -122,6 +122,29 @@ describe("registerWorkboardCli", () => {
     expect(after?.metadata?.automation?.dispatchCount).toBeUndefined();
   });
 
+  it("requests admin scope for remote gateway dispatch", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const program = createProgram(store);
+    gatewayRuntime.callGatewayFromCli.mockResolvedValueOnce({
+      promoted: 0,
+      started: 0,
+      failed: 0,
+      failures: [],
+    });
+
+    await program.parseAsync(["workboard", "dispatch", "--url", "ws://remote"], { from: "user" });
+
+    expect(gatewayRuntime.callGatewayFromCli).toHaveBeenCalledWith(
+      "workboard.cards.dispatch",
+      expect.objectContaining({ url: "ws://remote" }),
+      {},
+      {
+        mode: "cli",
+        scopes: ["operator.admin"],
+      },
+    );
+  });
+
   it("does not fall back to local dispatch for configured remote gateways", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Configured remote target", status: "ready" });

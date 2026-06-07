@@ -84,9 +84,13 @@ async function callWorkboardGateway(
   options: GatewayOptions,
   params?: unknown,
 ): Promise<unknown> {
+  const scopes =
+    method === "workboard.cards.dispatch"
+      ? ["operator.admin"]
+      : ["operator.write", "operator.read"];
   return await callGatewayFromCli(method, options, params, {
     mode: "cli",
-    scopes: ["operator.write", "operator.read"],
+    scopes,
   });
 }
 

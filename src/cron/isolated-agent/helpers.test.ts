@@ -5,6 +5,7 @@ import {
   pickLastDeliverablePayload,
   pickLastNonEmptyTextFromPayloads,
   pickSummaryFromPayloads,
+  resolveCronPayloadOutcome,
 } from "./helpers.js";
 
 type TextPayload = { text?: string | undefined; isError?: boolean | undefined };
@@ -225,5 +226,58 @@ describe("isHeartbeatOnlyResponse", () => {
         ACK_MAX,
       ),
     ).toBe(false);
+  });
+});
+
+describe("resolveCronPayloadOutcome", () => {
+  it("marks command runs fatal when the final text says no shell tool was exposed", () => {
+    const outcome = resolveCronPayloadOutcome({
+      payloads: [
+        {
+          text: "Failed to run the warm-up command because the current runtime did not expose any terminal/command-execution tool.",
+        },
+      ],
+    });
+
+    expect(outcome.hasFatalErrorPayload).toBe(true);
+    expect(outcome.embeddedRunError).toContain("no shell/terminal execution tool");
+    expect(outcome.deliveryPayloads).toEqual([
+      {
+        text: "cron isolated run failed: requested command did not run because no shell/terminal execution tool was available",
+        isError: true,
+      },
+    ]);
+  });
+
+  it("marks command runs fatal when cron reports command-execution was not exposed", () => {
+    const outcome = resolveCronPayloadOutcome({
+      payloads: [
+        {
+          text: [
+            "Failed to run the scheduled warm-up because this session does not expose any local command-execution tool.",
+            "",
+            "Result:",
+            "- `bash ~/.openclaw/workspace/scripts/ollama-warmup.sh qwen3.6:latest qwen3-coder-next:128k nemotron3:33b` was not executed",
+            "- No warm-up log lines were available to report",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(outcome.hasFatalErrorPayload).toBe(true);
+    expect(outcome.embeddedRunError).toContain("no shell/terminal execution tool");
+    expect(outcome.deliveryPayloads[0]?.isError).toBe(true);
+  });
+
+  it("does not mark normal command output fatal", () => {
+    const outcome = resolveCronPayloadOutcome({
+      payloads: [{ text: "Ollama warm-up completed successfully. All models responded." }],
+    });
+
+    expect(outcome.hasFatalErrorPayload).toBe(false);
+    expect(outcome.embeddedRunError).toBeUndefined();
+    expect(outcome.deliveryPayloads).toEqual([
+      { text: "Ollama warm-up completed successfully. All models responded." },
+    ]);
   });
 });

@@ -225,6 +225,34 @@ function isSuccessfulCronPayload(payload: DeliveryPayload | undefined): boolean 
   );
 }
 
+function classifyCronCommandExecutionFailure(text: string | undefined): string | undefined {
+  const normalized = normalizeOptionalString(text);
+  if (!normalized) {
+    return undefined;
+  }
+  const commandDidNotRun =
+    /\b(?:failed|unable|cannot|could not|did not)\s+(?:to\s+)?run\b/i.test(normalized) ||
+    /\bno log lines?\s+(?:were\s+)?(?:available|produced|returned)\b/i.test(normalized) ||
+    /\bno\b[\s\S]{0,60}\blog lines?\s+(?:were\s+)?(?:available|produced|returned)\b/i.test(
+      normalized,
+    ) ||
+    /\b(?:command|script|scheduled job|\`[^`]+\`)\s+(?:was\s+)?not\s+executed\b/i.test(normalized);
+  const missingExecutionSurface =
+    /\bno\s+(?:terminal|shell|exec|execution|command-execution)\s+tool\b/i.test(normalized) ||
+    /\bno\b[\s\S]{0,80}\b(?:terminal|shell|exec|execution)\b[\s\S]{0,80}\b(?:available|exposed|provided)\b/i.test(
+      normalized,
+    ) ||
+    /\bdid not expose\b[\s\S]{0,80}\b(?:terminal|shell|exec|execution)\b/i.test(normalized) ||
+    /\bdoes not expose\b[\s\S]{0,80}\b(?:terminal|shell|exec|execution|command-execution)\b/i.test(
+      normalized,
+    ) ||
+    /\b(?:lacked|missing)\b[\s\S]{0,80}\b(?:terminal|shell|exec|execution)\b/i.test(normalized);
+  if (!commandDidNotRun || !missingExecutionSurface) {
+    return undefined;
+  }
+  return "cron isolated run failed: requested command did not run because no shell/terminal execution tool was available";
+}
+
 /** Resolves summary, output text, delivery payloads, and fatal-error state from cron run output. */
 export function resolveCronPayloadOutcome(params: {
   payloads: DeliveryPayload[];
@@ -324,8 +352,12 @@ export function resolveCronPayloadOutcome(params: {
         : [];
   const failureSignal = normalizeCronFailureSignal(params.failureSignal);
   const runLevelError = formatCronRunLevelError(params.runLevelError);
+  const commandExecutionFailure = classifyCronCommandExecutionFailure(synthesizedText);
   const hasFatalErrorPayload =
-    hasFatalStructuredErrorPayload || failureSignal !== undefined || runLevelError !== undefined;
+    hasFatalStructuredErrorPayload ||
+    failureSignal !== undefined ||
+    commandExecutionFailure !== undefined ||
+    runLevelError !== undefined;
   const structuredErrorText = hasFatalStructuredErrorPayload
     ? (lastErrorPayloadText ?? "cron isolated run returned an error payload")
     : undefined;
@@ -334,6 +366,7 @@ export function resolveCronPayloadOutcome(params: {
   const fatalDeliveryText =
     structuredErrorText ??
     failureSignal?.message ??
+    commandExecutionFailure ??
     (shouldUseRunLevelErrorPayload ? runLevelError : undefined);
   const fatalDeliveryPayload = fatalDeliveryText
     ? ({ text: fatalDeliveryText, isError: true } satisfies DeliveryPayload)
@@ -353,7 +386,7 @@ export function resolveCronPayloadOutcome(params: {
       ? structuredErrorText
       : failureSignal
         ? formatCronFailureSignal(failureSignal)
-        : runLevelError,
+        : (commandExecutionFailure ?? runLevelError),
     pendingPresentationWarningError: hasPendingPresentationWarning
       ? lastErrorPayloadText
       : undefined,

@@ -81,6 +81,27 @@ function hasWildcardToolAllowlist(toolsAllow: string[]): boolean {
   return toolsAllow.some((entry) => normalizeToolName(entry) === "*");
 }
 
+export function allowlistRequestsShellCodingTools(toolsAllow?: string[]): boolean {
+  if (!toolsAllow || toolsAllow.length === 0) {
+    return false;
+  }
+  if (hasWildcardToolAllowlist(toolsAllow)) {
+    return true;
+  }
+  return normalizeToolList(expandToolGroups(toolsAllow)).some((name) =>
+    SHELL_CODING_TOOL_FACTORY_NAMES.has(name),
+  );
+}
+
+export function toolNamesIncludeShellCodingTools(toolNames: Iterable<string>): boolean {
+  for (const toolName of toolNames) {
+    if (SHELL_CODING_TOOL_FACTORY_NAMES.has(normalizeToolName(toolName))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isKnownLocalCodingToolName(normalized: string): boolean {
   return (
     BASE_CODING_TOOL_FACTORY_NAMES.has(normalized) ||

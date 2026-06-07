@@ -296,10 +296,12 @@ import { abortable as abortableWithSignal } from "./abortable.js";
 import { createEmbeddedAgentSessionWithResourceLoader } from "./attempt-session.js";
 import {
   applyEmbeddedAttemptToolsAllow,
+  allowlistRequestsShellCodingTools,
   mergeForcedEmbeddedAttemptToolsAllow,
   resolveEmbeddedAttemptToolConstructionPlan,
   shouldCreateBundleLspRuntimeForAttempt,
   shouldCreateBundleMcpRuntimeForAttempt,
+  toolNamesIncludeShellCodingTools,
 } from "./attempt-tool-construction-plan.js";
 import {
   resolveAttemptTrajectoryTerminal,
@@ -1117,6 +1119,16 @@ export async function runEmbeddedAttempt(
       toolsAllow: toolsAllowWithForcedRuntimeTools,
     });
     const toolsEnabled = supportsModelTools(params.model);
+    if (
+      params.trigger === "cron" &&
+      !toolsEnabled &&
+      allowlistRequestsShellCodingTools(toolsAllowWithForcedRuntimeTools)
+    ) {
+      const modelLabel = [params.provider, params.modelId].filter(Boolean).join("/") || "selected";
+      throw new Error(
+        `Cron job ${params.jobId ?? params.runId} requires shell execution tools, but ${modelLabel} does not support tool calls. Select a tool-capable model/runtime before running this job.`,
+      );
+    }
     const codeModeConfig = resolveCodeModeConfig(params.config, sessionAgentId);
     const codeModeControlsEnabledForRun =
       toolsEnabled &&
@@ -1614,6 +1626,16 @@ export async function runEmbeddedAttempt(
       sessionId: params.sessionId,
     });
     effectiveTools = [...toolSearchSchemaProjection.tools];
+    if (
+      params.trigger === "cron" &&
+      allowlistRequestsShellCodingTools(effectiveToolsAllow) &&
+      !toolNamesIncludeShellCodingTools(effectiveTools.map((tool) => tool.name))
+    ) {
+      const modelLabel = [params.provider, params.modelId].filter(Boolean).join("/") || "selected";
+      throw new Error(
+        `Cron job ${params.jobId ?? params.runId} requires shell execution tools, but ${modelLabel} exposed no callable shell tools after runtime policy filtering. Select a tool-capable execution runtime before running this job.`,
+      );
+    }
     if (toolSearch.compacted && !toolSearch.catalogReused) {
       prepStages.mark(codeModeControlsEnabledForRun ? "code-mode" : "tool-search");
       log.info(

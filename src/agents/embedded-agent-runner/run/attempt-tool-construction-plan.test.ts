@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   applyEmbeddedAttemptToolsAllow,
+  allowlistRequestsShellCodingTools,
   mergeForcedEmbeddedAttemptToolsAllow,
   resolveEmbeddedAttemptToolConstructionPlan,
   shouldBuildCoreCodingToolsForAllowlist,
   shouldCreateBundleLspRuntimeForAttempt,
   shouldCreateBundleMcpRuntimeForAttempt,
+  toolNamesIncludeShellCodingTools,
 } from "./attempt-tool-construction-plan.js";
 
 type EmbeddedAttemptToolConstructionPlan = ReturnType<
@@ -167,6 +169,36 @@ describe("applyEmbeddedAttemptToolsAllow", () => {
 
     expect(applyEmbeddedAttemptToolsAllow(tools, []).map((tool) => tool.name)).toStrictEqual([]);
     expect(shouldBuildCoreCodingToolsForAllowlist([])).toBe(false);
+  });
+});
+
+describe("allowlistRequestsShellCodingTools", () => {
+  it("detects explicit shell execution tool requests", () => {
+    expect(allowlistRequestsShellCodingTools(["exec"])).toBe(true);
+    expect(allowlistRequestsShellCodingTools(["process"])).toBe(true);
+    expect(allowlistRequestsShellCodingTools(["apply_patch"])).toBe(true);
+    expect(allowlistRequestsShellCodingTools(["*"])).toBe(true);
+  });
+
+  it("ignores non-shell and empty allowlists", () => {
+    expect(allowlistRequestsShellCodingTools(undefined)).toBe(false);
+    expect(allowlistRequestsShellCodingTools([])).toBe(false);
+    expect(allowlistRequestsShellCodingTools(["memory_search"])).toBe(false);
+    expect(allowlistRequestsShellCodingTools(["session_status"])).toBe(false);
+  });
+});
+
+describe("toolNamesIncludeShellCodingTools", () => {
+  it("detects exposed shell execution tools after runtime filtering", () => {
+    expect(toolNamesIncludeShellCodingTools(["read", "exec"])).toBe(true);
+    expect(toolNamesIncludeShellCodingTools(["process"])).toBe(true);
+    expect(toolNamesIncludeShellCodingTools(["apply_patch"])).toBe(true);
+  });
+
+  it("does not treat non-shell tools as execution tools", () => {
+    expect(toolNamesIncludeShellCodingTools([])).toBe(false);
+    expect(toolNamesIncludeShellCodingTools(["message", "session_status"])).toBe(false);
+    expect(toolNamesIncludeShellCodingTools(["code_execution"])).toBe(false);
   });
 });
 

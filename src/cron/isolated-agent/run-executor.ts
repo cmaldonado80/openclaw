@@ -1,4 +1,7 @@
+import { exec as execCallback } from "node:child_process";
 import { createHash } from "node:crypto";
+import { promisify } from "node:util";
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { BootstrapContextMode } from "../../agents/bootstrap-files.js";
 import { resolveCliRuntimeExecutionProvider } from "../../agents/model-runtime-aliases.js";
 import type { ThinkLevel, VerboseLevel } from "../../auto-reply/thinking.js";
@@ -47,6 +50,7 @@ const cronEmbeddedRuntimeLoader = createLazyImportLoader<CronEmbeddedRuntime>(
 const cronSubagentRegistryRuntimeLoader = createLazyImportLoader<CronSubagentRegistryRuntime>(
   () => import("./run-subagent-registry.runtime.js"),
 );
+const execShell = promisify(execCallback);
 
 async function loadCronEmbeddedRuntime() {
   return await cronEmbeddedRuntimeLoader.load();
@@ -58,6 +62,7 @@ async function loadCronSubagentRegistryRuntime() {
 
 const COMMAND_STYLE_CRON_PREFIX =
   /^(?:(?:[A-Z_][A-Z0-9_]*=\S+\s+)+)?(?:cd\s+\S+|(?:\.{1,2}|~)?\/\S+|[A-Za-z]:[\\/]\S+|(?:bash|bun|cargo|deno|docker|gh|git|go|make|node|npm|npx|pnpm|python|python3|ruby|sh|tsx|uv|zsh)\b)/u;
+const DIRECT_CRON_SHELL_OUTPUT_LIMIT = 24_000;
 
 function resolveIsolatedCronPromptCacheKey(params: {
   job: CronJob;
@@ -91,6 +96,103 @@ export function isCommandStyleCronMessage(message: string): boolean {
     return false;
   }
   return COMMAND_STYLE_CRON_PREFIX.test(trimmed);
+}
+
+function cronToolsAllowExec(toolsAllow: string[] | undefined): boolean {
+  return (
+    toolsAllow?.some((entry) => {
+      const normalized = entry.trim().toLowerCase();
+      return normalized === "*" || normalized === "exec" || normalized === "shell";
+    }) === true
+  );
+}
+
+function extractTrustedCronShellCommand(message: string | undefined): string | undefined {
+  const normalized = normalizeOptionalString(message);
+  if (!normalized) {
+    return undefined;
+  }
+  const backtickedExecute = normalized.match(/\bexecute\s+`([^`]+)`/iu)?.[1]?.trim();
+  if (backtickedExecute) {
+    return backtickedExecute;
+  }
+  const executeExactly = normalized
+    .match(/\bexecute exactly:\s*([\s\S]+?)(?:\s+Then report\b|$)/iu)?.[1]
+    ?.trim();
+  return executeExactly || undefined;
+}
+
+function truncateDirectCronShellOutput(text: string): string {
+  return text.length > DIRECT_CRON_SHELL_OUTPUT_LIMIT
+    ? `${truncateMiddle(text, DIRECT_CRON_SHELL_OUTPUT_LIMIT)}\n[openclaw cron: output truncated]`
+    : text;
+}
+
+function truncateMiddle(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  const head = Math.max(0, Math.floor(maxChars * 0.65));
+  const tail = Math.max(0, maxChars - head);
+  return `${text.slice(0, head)}\n...\n${text.slice(text.length - tail)}`;
+}
+
+async function runTrustedCronShellCommand(params: {
+  command: string;
+  workspaceDir: string;
+  timeoutMs: number;
+  provider: string;
+  model: string;
+}): Promise<CronPromptRunResult> {
+  const startedAt = Date.now();
+  let stdout = "";
+  let stderr = "";
+  let exitCode: unknown = 0;
+  let signal: unknown;
+  try {
+    const result = await execShell(params.command, {
+      cwd: params.workspaceDir,
+      env: process.env,
+      shell: "/bin/zsh",
+      timeout: params.timeoutMs,
+      maxBuffer: 1024 * 1024 * 4,
+    });
+    stdout = result.stdout;
+    stderr = result.stderr;
+  } catch (err) {
+    const execErr = err as Error & {
+      stdout?: string;
+      stderr?: string;
+      code?: unknown;
+      signal?: unknown;
+    };
+    stdout = execErr.stdout ?? "";
+    stderr = execErr.stderr ?? "";
+    exitCode = execErr.code ?? 1;
+    signal = execErr.signal;
+  }
+  const durationMs = Date.now() - startedAt;
+  const output = truncateDirectCronShellOutput(
+    [
+      `Direct cron shell execution ${exitCode === 0 ? "completed" : "failed"}.`,
+      `exit_status=${String(exitCode)}`,
+      signal ? `signal=${String(signal)}` : undefined,
+      stdout.trim() ? ["stdout:", stdout.trim()].join("\n") : undefined,
+      stderr.trim() ? ["stderr:", stderr.trim()].join("\n") : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+  return {
+    payloads: [{ text: output, isError: exitCode !== 0 }],
+    meta: {
+      durationMs,
+      agentMeta: {
+        provider: params.provider,
+        model: params.model,
+      },
+    },
+  };
 }
 
 function resolveCronBootstrapContextMode(
@@ -180,6 +282,24 @@ export function createCronPromptExecutor(params: {
   const messageChannel = params.sourceDelivery.target.channel ?? params.resolvedDelivery.channel;
 
   const runPrompt = async (promptText: string) => {
+    const directShellCommand =
+      params.job.sessionTarget === "isolated" && cronToolsAllowExec(params.agentPayload?.toolsAllow)
+        ? extractTrustedCronShellCommand(promptText)
+        : undefined;
+    if (directShellCommand) {
+      params.onExecutionStarted?.();
+      runResult = await runTrustedCronShellCommand({
+        command: directShellCommand,
+        workspaceDir: params.workspaceDir,
+        timeoutMs: params.runTimeoutOverrideMs ?? params.timeoutMs,
+        provider: params.liveSelection.provider,
+        model: params.liveSelection.model,
+      });
+      fallbackProvider = params.liveSelection.provider;
+      fallbackModel = params.liveSelection.model;
+      runEndedAt = Date.now();
+      return;
+    }
     const fallbackResult = await runWithModelFallback({
       cfg: params.cfgWithAgentDefaults,
       provider: params.liveSelection.provider,
@@ -242,6 +362,7 @@ export function createCronPromptExecutor(params: {
             skillsSnapshot: params.skillsSnapshot,
             messageChannel,
             sourceReplyDeliveryMode,
+            toolsAllow: params.agentPayload?.toolsAllow,
             abortSignal: params.abortSignal,
             onExecutionStarted: params.onExecutionStarted,
             onExecutionPhase: params.onExecutionPhase,

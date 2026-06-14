@@ -1702,7 +1702,10 @@ describe("CodexAppServerEventProjector", () => {
     expect(toolResultMessage.toolName).toBe("bash");
     expect(toolResultMessage.isError).toBe(true);
     const toolResultContent = requireArray(toolResultMessage.content, "tool result content");
-    expect(JSON.stringify(toolResultContent)).toContain("matching tool.result");
+    expect(JSON.stringify(toolResultContent)).toContain("synthetic failed result");
+    expect(JSON.stringify(toolResultContent)).not.toContain(
+      "OpenClaw recorded a native Codex tool.call",
+    );
     expect(trajectoryRecorder.recordEvent).toHaveBeenCalledWith("tool.call", {
       threadId: THREAD_ID,
       turnId: TURN_ID,
@@ -1723,8 +1726,11 @@ describe("CodexAppServerEventProjector", () => {
       status: "failed",
       isError: true,
       result: { status: "failed", reason: "missing_tool_result" },
-      output: expect.stringContaining("without a matching tool.result"),
+      output: expect.stringContaining("synthetic failed result"),
     });
+    expect(JSON.stringify(trajectoryRecorder.recordEvent.mock.calls)).not.toContain(
+      "OpenClaw recorded a native Codex tool.call",
+    );
   });
 
   it("fails closed on missing native tool results when explicitly enabled", async () => {
@@ -1765,7 +1771,8 @@ describe("CodexAppServerEventProjector", () => {
 
     const result = projector.buildResult(buildEmptyToolTelemetry());
 
-    expect(String(result.promptError)).toContain("without a matching tool.result");
+    expect(String(result.promptError)).toContain("repaired a native Codex tool call");
+    expect(String(result.promptError)).not.toContain("OpenClaw recorded a native Codex tool.call");
     expect(result.promptErrorSource).toBe("prompt");
     expect(result.messagesSnapshot.map((message) => message.role)).toEqual([
       "user",
@@ -1777,8 +1784,11 @@ describe("CodexAppServerEventProjector", () => {
       "tool.result",
       expect.objectContaining({
         itemId: "cmd-denied",
-        output: expect.stringContaining("without a matching tool.result"),
+        output: expect.stringContaining("synthetic failed result"),
       }),
+    );
+    expect(JSON.stringify(result.messagesSnapshot)).not.toContain(
+      "OpenClaw recorded a native Codex tool.call",
     );
   });
 

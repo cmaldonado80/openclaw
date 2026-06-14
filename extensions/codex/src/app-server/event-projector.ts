@@ -110,7 +110,9 @@ const CODEX_PROMPT_TOTAL_INPUT_KEYS = [
 const MAX_TOOL_OUTPUT_DELTA_MESSAGES_PER_ITEM = 20;
 const TOOL_TRANSCRIPT_OUTPUT_MAX_CHARS = 12_000;
 const MISSING_TOOL_RESULT_ERROR =
-  "OpenClaw recorded a native Codex tool.call without a matching tool.result before the turn completed.";
+  "OpenClaw repaired a native Codex tool call whose result was not reported before the turn completed.";
+const MISSING_TOOL_RESULT_REPAIR_TEXT =
+  "[openclaw] native tool result was not reported before the turn ended; inserted a synthetic failed result so the transcript stays valid.";
 const GENERATED_IMAGE_MEDIA_SUBDIR = "tool-image-generation";
 const BYTES_PER_MB = 1024 * 1024;
 // Match OpenClaw's default image media cap for generated image tool outputs.
@@ -2030,7 +2032,7 @@ function itemStatus(item: CodexThreadItem): "completed" | "failed" | "running" |
 }
 
 function formatMissingToolResultError(params: { id: string; name: string }): string {
-  return `${MISSING_TOOL_RESULT_ERROR} toolCallId=${params.id}; toolName=${params.name}`;
+  return `${MISSING_TOOL_RESULT_REPAIR_TEXT} toolCallId=${params.id}; toolName=${params.name}`;
 }
 
 function isNonSuccessItemStatus(status: ReturnType<typeof itemStatus>): boolean {

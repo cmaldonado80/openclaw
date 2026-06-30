@@ -60,7 +60,26 @@ const ACP_TRACE_LEVEL_CONFIG_ID = "trace_level";
 const ACP_REASONING_LEVEL_CONFIG_ID = "reasoning_level";
 const ACP_RESPONSE_USAGE_CONFIG_ID = "response_usage";
 const ACP_ELEVATED_LEVEL_CONFIG_ID = "elevated_level";
+/** Max number of transcript messages to request from the gateway. */
 const ACP_LOAD_SESSION_REPLAY_LIMIT = 1_000_000;
+
+/**
+ * Soft byte budget for total replayed session content.
+ *
+ * When the cumulative text length of replay chunks exceeds this budget, older
+ * messages are truncated to a summary stub and only the most recent messages
+ * are replayed in full. This prevents unbounded token cost when loading long
+ * sessions (e.g. orchestrator main sessions with hundreds of turns) into ACP
+ * clients.
+ */
+const ACP_REPLAY_BYTE_BUDGET = 120_000;
+
+/**
+ * Maximum bytes of a single thinking block to replay verbatim. Longer thinking
+ * blocks are truncated to this length with a marker.
+ */
+const ACP_REPLAY_THINKING_MAX_BYTES = 8_000;
+
 const ACP_GATEWAY_DISCONNECT_GRACE_MS = 5_000;
 
 type DisconnectContext = {
@@ -1337,9 +1356,82 @@ export class AcpGatewayAgent implements Agent {
     sessionId: string,
     transcript: ReadonlyArray<GatewayTranscriptMessage>,
   ): Promise<void> {
+    // Pre-compute per-message chunk lists and total byte cost.
+    const messageChunks: ReplayChunk[][] = [];
+    let totalBytes = 0;
     for (const message of transcript) {
-      const replayChunks = extractReplayChunks(message);
-      for (const chunk of replayChunks) {
+      const chunks = extractReplayChunks(message);
+      // Apply thinking-block truncation before budget accounting.
+      const truncatedChunks = chunks.map((chunk) => {
+        if (
+          chunk.sessionUpdate === "agent_thought_chunk" &&
+          chunk.text.length > ACP_REPLAY_THINKING_MAX_BYTES
+        ) {
+          return {
+            ...chunk,
+            text:
+              chunk.text.slice(0, ACP_REPLAY_THINKING_MAX_BYTES) +
+              "\n\n[... thinking truncated for replay budget ...]",
+          };
+        }
+        return chunk;
+      });
+      messageChunks.push(truncatedChunks);
+      for (const chunk of truncatedChunks) {
+        totalBytes += chunk.text.length;
+      }
+    }
+
+    // If under budget, replay everything in order.
+    if (totalBytes <= ACP_REPLAY_BYTE_BUDGET) {
+      for (const chunks of messageChunks) {
+        for (const chunk of chunks) {
+          await this.connection.sessionUpdate({
+            sessionId,
+            update: {
+              sessionUpdate: chunk.sessionUpdate,
+              content: { type: "text", text: chunk.text },
+            },
+          });
+        }
+      }
+      return;
+    }
+
+    // Over budget: walk from the most recent messages backwards, accumulating
+    // until we hit the budget. Older messages are summarised as a single stub.
+    const recentMessages: { idx: number; chunks: ReplayChunk[] }[] = [];
+    let recentBytes = 0;
+    for (let i = messageChunks.length - 1; i >= 0; i--) {
+      const chunks = messageChunks[i];
+      const msgBytes = chunks.reduce((sum, c) => sum + c.text.length, 0);
+      if (recentBytes + msgBytes > ACP_REPLAY_BYTE_BUDGET && recentMessages.length > 0) {
+        break;
+      }
+      recentMessages.unshift({ idx: i, chunks });
+      recentBytes += msgBytes;
+    }
+
+    const firstRecentIdx = recentMessages.length > 0 ? recentMessages[0].idx : transcript.length;
+    const omittedCount = firstRecentIdx;
+
+    // Emit a single stub for omitted older messages.
+    if (omittedCount > 0) {
+      const stub =
+        `[... ${omittedCount} earlier message(s) truncated to stay within replay budget ` +
+        `(${totalBytes.toLocaleString()} chars total, showing last ${recentMessages.length} messages) ...]`;
+      await this.connection.sessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: stub },
+        },
+      });
+    }
+
+    // Replay the retained recent messages in order.
+    for (const { chunks } of recentMessages) {
+      for (const chunk of chunks) {
         await this.connection.sessionUpdate({
           sessionId,
           update: {

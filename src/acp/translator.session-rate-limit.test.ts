@@ -1177,3 +1177,151 @@ describe("acp final chat snapshots", () => {
     sessionStore.clearAllSessionsForTest();
   });
 });
+
+describe("ACP replay byte budget", () => {
+  it("truncates older messages when transcript exceeds the replay byte budget", async () => {
+    const sessionStore = createInMemorySessionStore();
+    const connection = createAcpConnection();
+    const sessionUpdate = connection.__sessionUpdateMock;
+
+    // Build a transcript that far exceeds the 120KB budget.
+    const bigText = "x".repeat(80_000);
+    const messages = [
+      // 3 old large turns — 240KB+ total, well over budget.
+      { role: "user", content: [{ type: "text", text: bigText }] },
+      { role: "assistant", content: [{ type: "text", text: bigText }] },
+      { role: "user", content: [{ type: "text", text: bigText }] },
+      // 2 recent turns that should be retained.
+      { role: "user", content: [{ type: "text", text: "recent question" }] },
+      { role: "assistant", content: [{ type: "text", text: "recent answer" }] },
+    ];
+
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.list") {
+        return { sessions: [], defaults: {} };
+      }
+      if (method === "sessions.get") {
+        return { messages };
+      }
+      return { ok: true };
+    }) as GatewayClient["request"];
+
+    const agent = new AcpGatewayAgent(connection, createAcpGateway(request), {
+      sessionStore,
+    });
+
+    await agent.loadSession(createLoadSessionRequest("agent:main:budget"));
+
+    // Should NOT have replayed ALL big old texts — at most one can fit the budget.
+    const allTexts = sessionUpdate.mock.calls.map(
+      (call: unknown[]) =>
+        ((call[0] as Record<string, Record<string, unknown>>)?.update?.content as Record<
+          string,
+          unknown
+        >)?.text,
+    );
+    const bigTextCount = allTexts.filter((t) => t === bigText).length;
+    expect(bigTextCount).toBeLessThan(3); // At least 2 of 3 big messages must be dropped
+
+    // Should have a truncation stub.
+    const stubs = allTexts.filter(
+      (t): t is string => typeof t === "string" && t.includes("truncated to stay within replay budget"),
+    );
+    expect(stubs.length).toBe(1);
+
+    // Should still contain recent messages.
+    expect(allTexts).toContain("recent question");
+    expect(allTexts).toContain("recent answer");
+    sessionStore.clearAllSessionsForTest();
+  });
+
+  it("truncates large thinking blocks even when under total budget", async () => {
+    const sessionStore = createInMemorySessionStore();
+    const connection = createAcpConnection();
+    const sessionUpdate = connection.__sessionUpdateMock;
+
+    const hugeThinking = "y".repeat(20_000);
+    const messages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: hugeThinking },
+          { type: "text", text: "short answer" },
+        ],
+      },
+    ];
+
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.list") {
+        return { sessions: [], defaults: {} };
+      }
+      if (method === "sessions.get") {
+        return { messages };
+      }
+      return { ok: true };
+    }) as GatewayClient["request"];
+
+    const agent = new AcpGatewayAgent(connection, createAcpGateway(request), {
+      sessionStore,
+    });
+
+    await agent.loadSession(createLoadSessionRequest("agent:main:thinking"));
+
+    const thinkingChunks = sessionUpdate.mock.calls.filter(
+      (call: unknown[]) =>
+        (call[0] as Record<string, Record<string, unknown>>)?.update?.sessionUpdate ===
+        "agent_thought_chunk",
+    );
+    expect(thinkingChunks).toHaveLength(1);
+    const replayedUpdate = thinkingChunks[0]?.[0] as {
+      update?: { content?: { text?: unknown } };
+    };
+    const replayedText = replayedUpdate.update?.content?.text;
+    if (typeof replayedText !== "string") {
+      throw new Error("expected replayed thinking text");
+    }
+    expect(replayedText.length).toBeLessThan(hugeThinking.length);
+    expect(replayedText).toContain("[... thinking truncated for replay budget ...]");
+    sessionStore.clearAllSessionsForTest();
+  });
+
+  it("replays everything when transcript is under the budget", async () => {
+    const sessionStore = createInMemorySessionStore();
+    const connection = createAcpConnection();
+    const sessionUpdate = connection.__sessionUpdateMock;
+
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "hi there" }] },
+    ];
+
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.list") {
+        return { sessions: [], defaults: {} };
+      }
+      if (method === "sessions.get") {
+        return { messages };
+      }
+      return { ok: true };
+    }) as GatewayClient["request"];
+
+    const agent = new AcpGatewayAgent(connection, createAcpGateway(request), {
+      sessionStore,
+    });
+
+    await agent.loadSession(createLoadSessionRequest("agent:main:small"));
+
+    // No truncation stub should appear.
+    const allTexts = sessionUpdate.mock.calls.map(
+      (call: unknown[]) =>
+        ((call[0] as Record<string, Record<string, unknown>>)?.update?.content as Record<
+          string,
+          unknown
+        >)?.text,
+    );
+    expect(allTexts.filter((t): t is string => typeof t === "string" && t.includes("truncated"))).toHaveLength(0);
+    expect(allTexts).toContain("hello");
+    expect(allTexts).toContain("hi there");
+    sessionStore.clearAllSessionsForTest();
+  });
+});

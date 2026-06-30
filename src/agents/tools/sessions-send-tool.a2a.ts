@@ -120,7 +120,18 @@ export async function runSessionsSendA2AFlow(params: {
     });
     const announceReply = await runAgentStep({
       sessionKey: params.targetSessionKey,
-      message: "Agent-to-agent announce step.",
+      message: [
+        "Agent-to-agent announce step.",
+        "",
+        "Original message:",
+        params.message,
+        "",
+        "Initial target reply:",
+        primaryReply,
+        "",
+        "Latest target reply:",
+        latestReply,
+      ].join("\n"),
       extraSystemPrompt: announcePrompt,
       timeoutMs: params.announceTimeoutMs,
       lane: AGENT_LANE_NESTED,

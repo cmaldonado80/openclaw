@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CallGatewayOptions } from "../../gateway/call.js";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
 import { createSessionConversationTestRegistry } from "../../test-utils/session-conversation-registry.js";
+import { runAgentStep } from "./agent-step.js";
 import { runSessionsSendA2AFlow, __testing } from "./sessions-send-tool.a2a.js";
+
+const runAgentStepMock = vi.mocked(runAgentStep);
 
 vi.mock("../run-wait.js", () => ({
   waitForAgentRun: vi.fn().mockResolvedValue({ status: "ok" }),
@@ -18,6 +21,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
 
   beforeEach(() => {
     setActivePluginRegistry(createSessionConversationTestRegistry());
+    runAgentStepMock.mockClear();
     gatewayCalls = [];
     __testing.setDepsForTest({
       callGateway: async <T = Record<string, unknown>>(opts: CallGatewayOptions) => {
@@ -65,5 +69,23 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     const sendParams = sendCall?.params as Record<string, unknown>;
     expect(sendParams.channel).toBe("discord");
     expect(sendParams.threadId).toBeUndefined();
+  });
+
+  it("injects completion context into the announce step instead of a bare placeholder", async () => {
+    await runSessionsSendA2AFlow({
+      targetSessionKey: "agent:main:discord:group:dev",
+      displayKey: "agent:main:discord:group:dev",
+      message: "Produce product design spec",
+      announceTimeoutMs: 10_000,
+      maxPingPongTurns: 0,
+      roundOneReply: "PRODUCT_DESIGN_SPEC\nDone.",
+    });
+
+    expect(runAgentStepMock).toHaveBeenCalledTimes(1);
+    const announceCall = runAgentStepMock.mock.calls[0]?.[0];
+    expect(announceCall?.message).toContain("Agent-to-agent announce step.");
+    expect(announceCall?.message).toContain("Original message:\nProduce product design spec");
+    expect(announceCall?.message).toContain("Initial target reply:\nPRODUCT_DESIGN_SPEC\nDone.");
+    expect(announceCall?.message).toContain("Latest target reply:\nPRODUCT_DESIGN_SPEC\nDone.");
   });
 });

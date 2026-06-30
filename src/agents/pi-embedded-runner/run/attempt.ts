@@ -206,6 +206,7 @@ import {
 } from "./attempt.subscription-cleanup.js";
 import {
   appendAttemptCacheTtlIfNeeded,
+  appendFullBootstrapContextMarker,
   composeSystemPromptWithHookContext,
   resolveAttemptSpawnWorkspaceDir,
   shouldPersistCompletedBootstrapTurn,
@@ -240,6 +241,7 @@ import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types
 
 export {
   appendAttemptCacheTtlIfNeeded,
+  appendFullBootstrapContextMarker,
   composeSystemPromptWithHookContext,
   resolveAttemptSpawnWorkspaceDir,
 } from "./attempt.thread-helpers.js";
@@ -449,6 +451,7 @@ export async function runEmbeddedAttempt(
           runKind: params.bootstrapContextRunKind,
         }),
     });
+    let bootstrapContextMarkerPersisted = false;
     const bootstrapMaxChars = resolveBootstrapMaxChars(params.config);
     const bootstrapTotalMaxChars = resolveBootstrapTotalMaxChars(params.config);
     const bootstrapAnalysis = analyzeBootstrapBudget({
@@ -2005,6 +2008,15 @@ export async function runEmbeddedAttempt(
               messages: btwSnapshotMessages,
               inFlightPrompt: effectivePrompt,
             });
+            if (shouldRecordCompletedBootstrapTurn && !bootstrapContextMarkerPersisted) {
+              bootstrapContextMarkerPersisted = appendFullBootstrapContextMarker({
+                sessionManager,
+                runId: params.runId,
+                sessionId: params.sessionId,
+                phase: "prompt-start",
+                warn: (message) => log.warn(message),
+              });
+            }
 
             // Only pass images option if there are actually images to pass
             // This avoids potential issues with models that don't expect the images parameter
@@ -2239,6 +2251,7 @@ export async function runEmbeddedAttempt(
         }
 
         if (
+          !bootstrapContextMarkerPersisted &&
           shouldPersistCompletedBootstrapTurn({
             shouldRecordCompletedBootstrapTurn,
             promptError,
@@ -2247,15 +2260,13 @@ export async function runEmbeddedAttempt(
             compactionOccurredThisAttempt,
           })
         ) {
-          try {
-            sessionManager.appendCustomEntry(FULL_BOOTSTRAP_COMPLETED_CUSTOM_TYPE, {
-              timestamp: Date.now(),
-              runId: params.runId,
-              sessionId: params.sessionId,
-            });
-          } catch (entryErr) {
-            log.warn(`failed to persist bootstrap completion entry: ${String(entryErr)}`);
-          }
+          bootstrapContextMarkerPersisted = appendFullBootstrapContextMarker({
+            sessionManager,
+            runId: params.runId,
+            sessionId: params.sessionId,
+            phase: "prompt-complete",
+            warn: (message) => log.warn(message),
+          });
         }
 
         cacheTrace?.recordStage("session:after", {

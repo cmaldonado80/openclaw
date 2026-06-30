@@ -68,7 +68,9 @@ export function stripThoughtSignatures<T>(
     }
     const rec = block as ContentBlockWithSignature;
     const stripSnake = shouldStripSignature(rec.thought_signature);
-    const stripCamel = includeCamelCase ? shouldStripSignature(rec.thoughtSignature) : false;
+    const stripCamel = includeCamelCase
+      ? shouldStripSignature(rec.thoughtSignature)
+      : false;
     if (!stripSnake && !stripCamel) {
       return block;
     }
@@ -86,9 +88,12 @@ export function stripThoughtSignatures<T>(
 export const DEFAULT_BOOTSTRAP_MAX_CHARS = 20_000;
 export const DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS = 150_000;
 export const DEFAULT_BOOTSTRAP_PROMPT_TRUNCATION_WARNING_MODE = "once";
+export const DEFAULT_MEMORY_BOOTSTRAP_MAX_CHARS = 8_000;
 const MIN_BOOTSTRAP_FILE_BUDGET_CHARS = 64;
 const BOOTSTRAP_HEAD_RATIO = 0.7;
 const BOOTSTRAP_TAIL_RATIO = 0.2;
+const PROMOTED_MEMORY_BOOTSTRAP_NOTE =
+  "[Promoted short-term memory details omitted from bootstrap context; use memory_search/memory_get for specific historical evidence.]";
 
 type TrimBootstrapResult = {
   content: string;
@@ -158,6 +163,39 @@ function trimBootstrapContent(
   };
 }
 
+function isMemoryBootstrapFile(file: WorkspaceBootstrapFile): boolean {
+  const name = file.name.trim().toLowerCase();
+  const baseName = path
+    .basename((normalizeOptionalString(file.path) ?? "").trim())
+    .toLowerCase();
+  return name === "memory.md" || baseName === "memory.md";
+}
+
+function compactMemoryBootstrapContent(content: string): string {
+  const trimmed = content.trimEnd();
+  const lines = trimmed.split(/\r?\n/);
+  const promotedSectionStart = lines.findIndex((line) =>
+    /^## Promoted From Short-Term Memory(?:\s|\(|$)/.test(line.trim()),
+  );
+  if (promotedSectionStart === -1) {
+    return trimmed;
+  }
+
+  const kept = lines.slice(0, promotedSectionStart);
+  while (kept.length > 0 && kept[kept.length - 1]?.trim() === "") {
+    kept.pop();
+  }
+  return [
+    ...kept,
+    "",
+    "## Promoted From Short-Term Memory",
+    "",
+    PROMOTED_MEMORY_BOOTSTRAP_NOTE,
+  ]
+    .join("\n")
+    .trimEnd();
+}
+
 function clampToBudget(content: string, budget: number): string {
   if (budget <= 0) {
     return "";
@@ -201,12 +239,19 @@ export async function ensureSessionHeader(params: {
 
 export function buildBootstrapContextFiles(
   files: WorkspaceBootstrapFile[],
-  opts?: { warn?: (message: string) => void; maxChars?: number; totalMaxChars?: number },
+  opts?: {
+    warn?: (message: string) => void;
+    maxChars?: number;
+    totalMaxChars?: number;
+  },
 ): EmbeddedContextFile[] {
   const maxChars = opts?.maxChars ?? DEFAULT_BOOTSTRAP_MAX_CHARS;
   const totalMaxChars = Math.max(
     1,
-    Math.floor(opts?.totalMaxChars ?? Math.max(maxChars, DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS)),
+    Math.floor(
+      opts?.totalMaxChars ??
+        Math.max(maxChars, DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS),
+    ),
   );
   let remainingTotalChars = totalMaxChars;
   const result: EmbeddedContextFile[] = [];
@@ -227,7 +272,10 @@ export function buildBootstrapContextFiles(
       if (!cappedMissingText) {
         break;
       }
-      remainingTotalChars = Math.max(0, remainingTotalChars - cappedMissingText.length);
+      remainingTotalChars = Math.max(
+        0,
+        remainingTotalChars - cappedMissingText.length,
+      );
       result.push({
         path: pathValue,
         content: cappedMissingText,
@@ -240,18 +288,42 @@ export function buildBootstrapContextFiles(
       );
       break;
     }
-    const fileMaxChars = Math.max(1, Math.min(maxChars, remainingTotalChars));
-    const trimmed = trimBootstrapContent(file.content ?? "", file.name, fileMaxChars);
-    const contentWithinBudget = clampToBudget(trimmed.content, remainingTotalChars);
+    const sourceContent = isMemoryBootstrapFile(file)
+      ? compactMemoryBootstrapContent(file.content ?? "")
+      : (file.content ?? "");
+    const fileMaxChars = Math.max(
+      1,
+      Math.min(
+        isMemoryBootstrapFile(file)
+          ? Math.min(maxChars, DEFAULT_MEMORY_BOOTSTRAP_MAX_CHARS)
+          : maxChars,
+        remainingTotalChars,
+      ),
+    );
+    const trimmed = trimBootstrapContent(
+      sourceContent,
+      file.name,
+      fileMaxChars,
+    );
+    const contentWithinBudget = clampToBudget(
+      trimmed.content,
+      remainingTotalChars,
+    );
     if (!contentWithinBudget) {
       continue;
     }
-    if (trimmed.truncated || contentWithinBudget.length < trimmed.content.length) {
+    if (
+      trimmed.truncated ||
+      contentWithinBudget.length < trimmed.content.length
+    ) {
       opts?.warn?.(
         `workspace bootstrap file ${file.name} is ${trimmed.originalLength} chars (limit ${trimmed.maxChars}); truncating in injected context`,
       );
     }
-    remainingTotalChars = Math.max(0, remainingTotalChars - contentWithinBudget.length);
+    remainingTotalChars = Math.max(
+      0,
+      remainingTotalChars - contentWithinBudget.length,
+    );
     result.push({
       path: pathValue,
       content: contentWithinBudget,
@@ -260,9 +332,13 @@ export function buildBootstrapContextFiles(
   return result;
 }
 
-export function sanitizeGoogleTurnOrdering(messages: AgentMessage[]): AgentMessage[] {
+export function sanitizeGoogleTurnOrdering(
+  messages: AgentMessage[],
+): AgentMessage[] {
   const GOOGLE_TURN_ORDER_BOOTSTRAP_TEXT = "(session bootstrap)";
-  const first = messages[0] as { role?: unknown; content?: unknown } | undefined;
+  const first = messages[0] as
+    | { role?: unknown; content?: unknown }
+    | undefined;
   const role = first?.role;
   const content = first?.content;
   if (

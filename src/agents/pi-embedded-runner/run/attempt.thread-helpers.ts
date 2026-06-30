@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
+import { FULL_BOOTSTRAP_COMPLETED_CUSTOM_TYPE } from "../../bootstrap-files.js";
 import { normalizeStructuredPromptSection } from "../../prompt-cache-stability.js";
 
 export const ATTEMPT_CACHE_TTL_CUSTOM_TYPE = "openclaw.cache-ttl";
@@ -103,4 +104,28 @@ export function shouldPersistCompletedBootstrapTurn(params: {
     return false;
   }
   return true;
+}
+
+export function appendFullBootstrapContextMarker(params: {
+  sessionManager: {
+    appendCustomEntry?: (customType: string, data: unknown) => void;
+  };
+  runId: string;
+  sessionId: string;
+  phase: "prompt-start" | "prompt-complete";
+  now?: number;
+  warn?: (message: string) => void;
+}): boolean {
+  try {
+    params.sessionManager.appendCustomEntry?.(FULL_BOOTSTRAP_COMPLETED_CUSTOM_TYPE, {
+      timestamp: params.now ?? Date.now(),
+      runId: params.runId,
+      sessionId: params.sessionId,
+      phase: params.phase,
+    });
+    return true;
+  } catch (entryErr) {
+    params.warn?.(`failed to persist bootstrap context marker: ${String(entryErr)}`);
+    return false;
+  }
 }

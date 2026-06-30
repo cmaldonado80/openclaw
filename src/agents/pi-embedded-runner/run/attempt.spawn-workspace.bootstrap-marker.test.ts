@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { shouldPersistCompletedBootstrapTurn } from "./attempt.thread-helpers.js";
+import { FULL_BOOTSTRAP_COMPLETED_CUSTOM_TYPE } from "../../bootstrap-files.js";
+import {
+  appendFullBootstrapContextMarker,
+  shouldPersistCompletedBootstrapTurn,
+} from "./attempt.thread-helpers.js";
 
 describe("runEmbeddedAttempt bootstrap completion marker", () => {
   it("keeps marker persistence enabled for clean sessions_yield exits", () => {
@@ -68,5 +72,52 @@ describe("runEmbeddedAttempt bootstrap completion marker", () => {
         compactionOccurredThisAttempt: true,
       }),
     ).toBe(false);
+  });
+
+  it("persists the full-bootstrap marker when the prompt is submitted", () => {
+    const calls: Array<[string, unknown]> = [];
+    const persisted = appendFullBootstrapContextMarker({
+      sessionManager: {
+        appendCustomEntry: (customType, data) => {
+          calls.push([customType, data]);
+        },
+      },
+      runId: "run-1",
+      sessionId: "session-1",
+      phase: "prompt-start",
+      now: 123,
+    });
+
+    expect(persisted).toBe(true);
+    expect(calls).toEqual([
+      [
+        FULL_BOOTSTRAP_COMPLETED_CUSTOM_TYPE,
+        {
+          timestamp: 123,
+          runId: "run-1",
+          sessionId: "session-1",
+          phase: "prompt-start",
+        },
+      ],
+    ]);
+  });
+
+  it("reports marker persistence failures without throwing", () => {
+    const warnings: string[] = [];
+    const persisted = appendFullBootstrapContextMarker({
+      sessionManager: {
+        appendCustomEntry: () => {
+          throw new Error("disk busy");
+        },
+      },
+      runId: "run-1",
+      sessionId: "session-1",
+      phase: "prompt-start",
+      now: 123,
+      warn: (message) => warnings.push(message),
+    });
+
+    expect(persisted).toBe(false);
+    expect(warnings).toEqual(["failed to persist bootstrap context marker: Error: disk busy"]);
   });
 });

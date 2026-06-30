@@ -17,6 +17,7 @@ export type CodexAppServerStartOptions = {
 export type CodexAppServerRuntimeOptions = {
   start: CodexAppServerStartOptions;
   requestTimeoutMs: number;
+  turnCompletionIdleTimeoutMs: number;
   approvalPolicy: CodexAppServerApprovalPolicy;
   sandbox: CodexAppServerSandboxMode;
   approvalsReviewer: CodexAppServerApprovalsReviewer;
@@ -36,11 +37,13 @@ export type CodexPluginConfig = {
     authToken?: string;
     headers?: Record<string, string>;
     requestTimeoutMs?: number;
+    turnCompletionIdleTimeoutMs?: number;
     approvalPolicy?: CodexAppServerApprovalPolicy;
     sandbox?: CodexAppServerSandboxMode;
     approvalsReviewer?: CodexAppServerApprovalsReviewer;
     serviceTier?: string;
   };
+  codexDynamicToolsExclude?: string[];
 };
 
 export const CODEX_APP_SERVER_CONFIG_KEYS = [
@@ -51,6 +54,7 @@ export const CODEX_APP_SERVER_CONFIG_KEYS = [
   "authToken",
   "headers",
   "requestTimeoutMs",
+  "turnCompletionIdleTimeoutMs",
   "approvalPolicy",
   "sandbox",
   "approvalsReviewer",
@@ -85,6 +89,7 @@ const codexPluginConfigSchema = z
         authToken: z.string().optional(),
         headers: z.record(z.string(), z.string()).optional(),
         requestTimeoutMs: z.number().positive().optional(),
+        turnCompletionIdleTimeoutMs: z.number().nonnegative().optional(),
         approvalPolicy: codexAppServerApprovalPolicySchema.optional(),
         sandbox: codexAppServerSandboxSchema.optional(),
         approvalsReviewer: codexAppServerApprovalsReviewerSchema.optional(),
@@ -92,6 +97,7 @@ const codexPluginConfigSchema = z
       })
       .strict()
       .optional(),
+    codexDynamicToolsExclude: z.array(z.string()).optional(),
   })
   .strict();
 
@@ -131,6 +137,10 @@ export function resolveCodexAppServerRuntimeOptions(
       headers,
     },
     requestTimeoutMs: normalizePositiveNumber(config.requestTimeoutMs, 60_000),
+    turnCompletionIdleTimeoutMs: normalizeNonNegativeNumber(
+      config.turnCompletionIdleTimeoutMs,
+      300_000,
+    ),
     approvalPolicy:
       resolveApprovalPolicy(config.approvalPolicy) ??
       resolveApprovalPolicy(env.OPENCLAW_CODEX_APP_SERVER_APPROVAL_POLICY) ??
@@ -186,6 +196,10 @@ function resolveApprovalsReviewer(value: unknown): CodexAppServerApprovalsReview
 
 function normalizePositiveNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function normalizeNonNegativeNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 function normalizeHeaders(value: unknown): Record<string, string> {

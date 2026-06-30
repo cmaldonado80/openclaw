@@ -192,9 +192,9 @@ export class CodexAppServerEventProjector {
     };
   }
 
-  markTimedOut(): void {
+  markTimedOut(message = "codex app-server attempt timed out"): void {
     this.aborted = true;
-    this.promptError = "codex app-server attempt timed out";
+    this.promptError = message;
     this.promptErrorSource = "prompt";
   }
 

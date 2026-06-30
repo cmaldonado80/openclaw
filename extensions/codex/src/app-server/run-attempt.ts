@@ -123,24 +123,74 @@ export async function runCodexAppServerAttempt(
   const pendingNotifications: CodexServerNotification[] = [];
   let completed = false;
   let timedOut = false;
+  let idleTimedOut = false;
   let resolveCompletion: (() => void) | undefined;
   const completion = new Promise<void>((resolve) => {
     resolveCompletion = resolve;
   });
   let notificationQueue: Promise<void> = Promise.resolve();
+  let turnCompletionIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  let activeAppServerRequests = 0;
+  const turnCompletionIdleTimeoutMs = resolveTurnCompletionIdleTimeoutMs({
+    configuredMs: appServer.turnCompletionIdleTimeoutMs,
+    fallbackMs: params.timeoutMs,
+  });
+
+  const clearTurnCompletionIdleTimer = () => {
+    if (turnCompletionIdleTimer) {
+      clearTimeout(turnCompletionIdleTimer);
+      turnCompletionIdleTimer = undefined;
+    }
+  };
+  const refreshTurnCompletionIdleTimer = () => {
+    clearTurnCompletionIdleTimer();
+    if (completed || runAbortController.signal.aborted || turnCompletionIdleTimeoutMs <= 0) {
+      return;
+    }
+    turnCompletionIdleTimer = setTimeout(() => {
+      if (activeAppServerRequests > 0) {
+        refreshTurnCompletionIdleTimer();
+        return;
+      }
+      timedOut = true;
+      idleTimedOut = true;
+      projector?.markTimedOut("codex app-server turn idle timed out waiting for turn/completed");
+      runAbortController.abort("turn_completion_idle_timeout");
+    }, turnCompletionIdleTimeoutMs);
+  };
+  const withAppServerRequestActivity = async <T>(operation: () => Promise<T> | T): Promise<T> => {
+    activeAppServerRequests += 1;
+    refreshTurnCompletionIdleTimer();
+    try {
+      return await operation();
+    } finally {
+      activeAppServerRequests = Math.max(0, activeAppServerRequests - 1);
+      refreshTurnCompletionIdleTimer();
+    }
+  };
 
   const handleNotification = async (notification: CodexServerNotification) => {
     if (!projector || !turnId) {
       pendingNotifications.push(notification);
       return;
     }
+    const activeTurnNotification = isActiveTurnNotification(
+      notification.params,
+      thread.threadId,
+      turnId,
+    );
     await projector.handleNotification(notification);
     if (
       notification.method === "turn/completed" &&
       isTurnNotification(notification.params, turnId)
     ) {
       completed = true;
+      clearTurnCompletionIdleTimer();
       resolveCompletion?.();
+      return;
+    }
+    if (activeTurnNotification) {
+      refreshTurnCompletionIdleTimer();
     }
   };
   const enqueueNotification = (notification: CodexServerNotification): Promise<void> => {
@@ -156,24 +206,27 @@ export async function runCodexAppServerAttempt(
     if (!turnId) {
       return undefined;
     }
+    const requestTurnId = turnId;
     if (request.method !== "item/tool/call") {
       if (isCodexAppServerApprovalRequest(request.method)) {
-        return handleApprovalRequest({
-          method: request.method,
-          params: request.params,
-          paramsForRun: params,
-          threadId: thread.threadId,
-          turnId,
-          signal: runAbortController.signal,
-        });
+        return withAppServerRequestActivity(() =>
+          handleApprovalRequest({
+            method: request.method,
+            params: request.params,
+            paramsForRun: params,
+            threadId: thread.threadId,
+            turnId: requestTurnId,
+            signal: runAbortController.signal,
+          }),
+        );
       }
       return undefined;
     }
     const call = readDynamicToolCallParams(request.params);
-    if (!call || call.threadId !== thread.threadId || call.turnId !== turnId) {
+    if (!call || call.threadId !== thread.threadId || call.turnId !== requestTurnId) {
       return undefined;
     }
-    return toolBridge.handleToolCall(call) as Promise<JsonValue>;
+    return withAppServerRequestActivity(() => toolBridge.handleToolCall(call) as Promise<JsonValue>);
   });
 
   let turn: CodexTurnStartResponse;
@@ -198,6 +251,7 @@ export async function runCodexAppServerAttempt(
   for (const notification of pendingNotifications.splice(0)) {
     await enqueueNotification(notification);
   }
+  refreshTurnCompletionIdleTimer();
   const activeTurnId = turnId;
   const activeProjector = projector;
 
@@ -216,15 +270,6 @@ export async function runCodexAppServerAttempt(
     abort: () => runAbortController.abort("aborted"),
   };
   setActiveEmbeddedRun(params.sessionId, handle, params.sessionKey);
-
-  const timeout = setTimeout(
-    () => {
-      timedOut = true;
-      projector?.markTimedOut();
-      runAbortController.abort("timeout");
-    },
-    Math.max(100, params.timeoutMs),
-  );
 
   const abortListener = () => {
     interruptCodexTurnBestEffort(client, {
@@ -250,12 +295,17 @@ export async function runCodexAppServerAttempt(
     return {
       ...result,
       timedOut,
+      idleTimedOut: result.idleTimedOut || idleTimedOut,
       aborted: result.aborted || runAbortController.signal.aborted,
-      promptError: timedOut ? "codex app-server attempt timed out" : result.promptError,
+      promptError: idleTimedOut
+        ? "codex app-server turn idle timed out waiting for turn/completed"
+        : timedOut
+          ? "codex app-server attempt timed out"
+          : result.promptError,
       promptErrorSource: timedOut ? "prompt" : result.promptErrorSource,
     };
   } finally {
-    clearTimeout(timeout);
+    clearTurnCompletionIdleTimer();
     notificationCleanup();
     requestCleanup();
     runAbortController.signal.removeEventListener("abort", abortListener);
@@ -439,6 +489,37 @@ function isTurnNotification(value: JsonValue | undefined, turnId: string): boole
   }
   const turn = isJsonObject(value.turn) ? value.turn : undefined;
   return readString(turn ?? {}, "id") === turnId;
+}
+
+function isActiveTurnNotification(
+  value: JsonValue | undefined,
+  threadId: string,
+  turnId: string,
+): boolean {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  const notificationThreadId = readString(value, "threadId");
+  if (notificationThreadId && notificationThreadId !== threadId) {
+    return false;
+  }
+  const notificationTurnId = readString(value, "turnId");
+  if (notificationTurnId) {
+    return notificationTurnId === turnId;
+  }
+  const turn = isJsonObject(value.turn) ? value.turn : undefined;
+  const nestedTurnId = turn ? readString(turn, "id") : undefined;
+  return !nestedTurnId || nestedTurnId === turnId;
+}
+
+function resolveTurnCompletionIdleTimeoutMs(params: {
+  configuredMs: number;
+  fallbackMs: number;
+}): number {
+  if (Number.isFinite(params.configuredMs) && params.configuredMs >= 0) {
+    return Math.floor(params.configuredMs);
+  }
+  return Math.max(0, Math.floor(params.fallbackMs));
 }
 
 function readString(record: JsonObject, key: string): string | undefined {

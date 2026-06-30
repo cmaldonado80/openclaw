@@ -59,6 +59,11 @@
             "minimum": 1,
             "default": 60000
           },
+          "turnCompletionIdleTimeoutMs": {
+            "type": "number",
+            "minimum": 0,
+            "default": 300000
+          },
           "approvalPolicy": {
             "type": "string",
             "enum": ["never", "on-request", "on-failure", "untrusted"],
@@ -76,6 +81,10 @@
           },
           "serviceTier": { "type": "string" }
         }
+      },
+      "codexDynamicToolsExclude": {
+        "type": "array",
+        "items": { "type": "string" }
       }
     }
   },
@@ -134,6 +143,11 @@
       "help": "Maximum time to wait for Codex app-server control-plane requests.",
       "advanced": true
     },
+    "appServer.turnCompletionIdleTimeoutMs": {
+      "label": "Turn Completion Idle Timeout",
+      "help": "Maximum idle time to wait for Codex app-server turn activity before interrupting a turn that has not completed. Set 0 to disable.",
+      "advanced": true
+    },
     "appServer.approvalPolicy": {
       "label": "Approval Policy",
       "help": "Codex native approval policy sent to thread start, resume, and turns.",
@@ -152,6 +166,11 @@
     "appServer.serviceTier": {
       "label": "Service Tier",
       "help": "Optional Codex service tier passed when starting or resuming threads.",
+      "advanced": true
+    },
+    "codexDynamicToolsExclude": {
+      "label": "Dynamic Tools Exclude",
+      "help": "OpenClaw dynamic tool names to withhold from Codex app-server turns.",
       "advanced": true
     }
   }

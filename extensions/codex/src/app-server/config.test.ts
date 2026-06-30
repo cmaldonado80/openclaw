@@ -18,7 +18,9 @@ describe("Codex app-server config", () => {
           sandbox: "danger-full-access",
           approvalsReviewer: "guardian_subagent",
           serviceTier: "priority",
+          turnCompletionIdleTimeoutMs: 300_000,
         },
+        codexDynamicToolsExclude: ["playwright"],
       },
       env: {
         OPENCLAW_CODEX_APP_SERVER_APPROVAL_POLICY: "never",
@@ -32,6 +34,7 @@ describe("Codex app-server config", () => {
         sandbox: "danger-full-access",
         approvalsReviewer: "guardian_subagent",
         serviceTier: "priority",
+        turnCompletionIdleTimeoutMs: 300_000,
         start: expect.objectContaining({
           transport: "websocket",
           url: "ws://127.0.0.1:39175",

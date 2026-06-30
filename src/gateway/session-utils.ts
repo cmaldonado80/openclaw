@@ -69,6 +69,7 @@ import {
 } from "./session-store-key.js";
 import {
   readLatestSessionUsageFromTranscript,
+  readLastTerminalAssistantSnapshotFromTranscript,
   readSessionTitleFieldsFromTranscript,
 } from "./session-utils.fs.js";
 import type {
@@ -85,6 +86,7 @@ export {
   capArrayByJsonBytes,
   readFirstUserMessageFromTranscript,
   readLastMessagePreviewFromTranscript,
+  readLastTerminalAssistantSnapshotFromTranscript,
   readLatestSessionUsageFromTranscript,
   readSessionTitleFieldsFromTranscript,
   readSessionPreviewItemsFromTranscript,
@@ -1155,6 +1157,11 @@ export function buildGatewaySessionRow(params: {
   const subagentStartedAt = subagentRun ? getSubagentSessionStartedAt(subagentRun) : undefined;
   const subagentEndedAt = subagentRun ? subagentRun.endedAt : undefined;
   const subagentRuntimeMs = subagentRun ? resolveSessionRuntimeMs(subagentRun, now) : undefined;
+  const rowStatus = subagentRun ? subagentStatus : entry?.status;
+  const rowStartedAt = subagentRun ? subagentStartedAt : entry?.startedAt;
+  let rowEndedAt = subagentRun ? subagentEndedAt : entry?.endedAt;
+  let rowRuntimeMs = subagentRun ? subagentRuntimeMs : entry?.runtimeMs;
+  let normalizedRowStatus = rowStatus;
   const selectedModel = entry?.modelOverride?.trim()
     ? resolveSessionModelRef(cfg, entry, sessionAgentId)
     : null;
@@ -1250,6 +1257,27 @@ export function buildGatewaySessionRow(params: {
     }
   }
 
+  if (normalizedRowStatus === "running" && entry?.sessionId) {
+    const terminalSnapshot = readLastTerminalAssistantSnapshotFromTranscript(
+      entry.sessionId,
+      storePath,
+      entry.sessionFile,
+      sessionAgentId,
+    );
+    if (terminalSnapshot) {
+      normalizedRowStatus = terminalSnapshot.status;
+      rowEndedAt = terminalSnapshot.endedAt ?? rowEndedAt;
+      if (
+        typeof rowStartedAt === "number" &&
+        Number.isFinite(rowStartedAt) &&
+        typeof rowEndedAt === "number" &&
+        Number.isFinite(rowEndedAt)
+      ) {
+        rowRuntimeMs = Math.max(0, rowEndedAt - rowStartedAt);
+      }
+    }
+  }
+
   return {
     key,
     spawnedBy: subagentOwner || entry?.spawnedBy,
@@ -1285,10 +1313,10 @@ export function buildGatewaySessionRow(params: {
     totalTokens,
     totalTokensFresh,
     estimatedCostUsd,
-    status: subagentRun ? subagentStatus : entry?.status,
-    startedAt: subagentRun ? subagentStartedAt : entry?.startedAt,
-    endedAt: subagentRun ? subagentEndedAt : entry?.endedAt,
-    runtimeMs: subagentRun ? subagentRuntimeMs : entry?.runtimeMs,
+    status: normalizedRowStatus,
+    startedAt: rowStartedAt,
+    endedAt: rowEndedAt,
+    runtimeMs: rowRuntimeMs,
     parentSessionKey: subagentOwner || entry?.parentSessionKey,
     childSessions,
     responseUsage: entry?.responseUsage,

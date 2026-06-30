@@ -285,4 +285,30 @@ describe("resolveEffectiveToolInventory", () => {
       }),
     );
   });
+
+  it("passes spawned group lineage into effective tool creation", async () => {
+    const createToolsMock = vi.fn<typeof createOpenClawCodingTools>(() => [
+      mockTool({ name: "exec", label: "Exec", description: "Run shell commands" }),
+    ]);
+    const { resolveEffectiveToolInventory } = await loadHarness({ createToolsMock });
+
+    resolveEffectiveToolInventory({
+      cfg: {},
+      sessionKey: "agent:rudy:subagent:child",
+      spawnedBy: "agent:rudy:whatsapp:group:trusted",
+      groupId: "trusted",
+      groupChannel: "Milenium F&B",
+      groupSpace: "fnb",
+    });
+
+    expect(createToolsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "agent:rudy:subagent:child",
+        spawnedBy: "agent:rudy:whatsapp:group:trusted",
+        groupId: "trusted",
+        groupChannel: "Milenium F&B",
+        groupSpace: "fnb",
+      }),
+    );
+  });
 });

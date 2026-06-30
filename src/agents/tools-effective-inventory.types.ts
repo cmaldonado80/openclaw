@@ -38,6 +38,7 @@ export type ResolveEffectiveToolInventoryParams = {
   senderUsername?: string | null;
   senderE164?: string | null;
   accountId?: string | null;
+  spawnedBy?: string | null;
   modelProvider?: string;
   modelId?: string;
   currentChannelId?: string;

@@ -22,7 +22,10 @@ describe("best-effort delivery helpers", () => {
     });
   });
 
-  it("keeps webchat/internal targets session-only", () => {
+  it("keeps webchat/internal targets session-only but preserves the channel for session routing", () => {
+    // Webchat is not externally deliverable, but the channel must be preserved
+    // so that subagent announce delivery can route completions back to the
+    // webchat session via the lifecycle broadcast path (emitChatFinal).
     expect(
       resolveExternalBestEffortDeliveryTarget({
         channel: "webchat",
@@ -30,7 +33,7 @@ describe("best-effort delivery helpers", () => {
       }),
     ).toEqual({
       deliver: false,
-      channel: undefined,
+      channel: "webchat",
       to: undefined,
       accountId: undefined,
       threadId: undefined,

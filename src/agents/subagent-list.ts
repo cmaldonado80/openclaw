@@ -133,26 +133,33 @@ export function isActiveSubagentRun(
   entry: SubagentRunRecord,
   pendingDescendantCount: (sessionKey: string) => number,
 ) {
-  return !entry.endedAt || pendingDescendantCount(entry.childSessionKey) > 0;
+  // endedAt on the parent run is authoritative; do not promote stale
+  // descendant bookkeeping to "active" for terminated runs.
+  if (typeof entry.endedAt === "number") {
+    return false;
+  }
+  // Non-ended runs are active regardless of pending descendant count.
+  // The pending count only affects the status label ("active (waiting on N children)").
+  return true;
 }
 
 function resolveRunStatus(entry: SubagentRunRecord, options?: { pendingDescendants?: number }) {
   const pendingDescendants = Math.max(0, options?.pendingDescendants ?? 0);
+  if (typeof entry.endedAt === "number") {
+    const status = entry.outcome?.status ?? "done";
+    if (status === "ok") {
+      return "done";
+    }
+    if (status === "error") {
+      return "failed";
+    }
+    return status;
+  }
   if (pendingDescendants > 0) {
     const childLabel = pendingDescendants === 1 ? "child" : "children";
     return `active (waiting on ${pendingDescendants} ${childLabel})`;
   }
-  if (!entry.endedAt) {
-    return "running";
-  }
-  const status = entry.outcome?.status ?? "done";
-  if (status === "ok") {
-    return "done";
-  }
-  if (status === "error") {
-    return "failed";
-  }
-  return status;
+  return "running";
 }
 
 function resolveModelRef(entry?: SessionEntry, fallbackModel?: string) {

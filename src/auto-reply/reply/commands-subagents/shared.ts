@@ -1,9 +1,6 @@
 import { resolveModelDisplayName } from "../../../agents/model-selection-display.js";
 import { resolveStoredSubagentCapabilities } from "../../../agents/subagent-capabilities.js";
 import type { ResolvedSubagentController } from "../../../agents/subagent-control.js";
-import { subagentRuns } from "../../../agents/subagent-registry-memory.js";
-import { countPendingDescendantRunsFromRuns } from "../../../agents/subagent-registry-queries.js";
-import { getSubagentRunsSnapshotForRead } from "../../../agents/subagent-registry-state.js";
 import type { SubagentRunRecord } from "../../../agents/subagent-registry.types.js";
 import {
   extractAssistantText,
@@ -80,6 +77,10 @@ export function resolveDisplayStatus(
   options?: { pendingDescendants?: number },
 ) {
   const pendingDescendants = Math.max(0, options?.pendingDescendants ?? 0);
+  if (typeof entry.endedAt === "number") {
+    const status = formatRunStatus(entry);
+    return status === "error" ? "failed" : status;
+  }
   if (pendingDescendants > 0) {
     const childLabel = pendingDescendants === 1 ? "child" : "children";
     return `active (waiting on ${pendingDescendants} ${childLabel})`;
@@ -178,15 +179,7 @@ export function resolveSubagentTarget(
     token,
     recentWindowMinutes: RECENT_WINDOW_MINUTES,
     label: (entry) => formatRunLabel(entry),
-    isActive: (entry) =>
-      !entry.endedAt ||
-      Math.max(
-        0,
-        countPendingDescendantRunsFromRuns(
-          getSubagentRunsSnapshotForRead(subagentRuns),
-          entry.childSessionKey,
-        ),
-      ) > 0,
+    isActive: (entry) => typeof entry.endedAt !== "number",
     errors: {
       missingTarget: "Missing subagent id.",
       invalidIndex: (value) => `Invalid subagent index: ${value}`,

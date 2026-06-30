@@ -592,6 +592,126 @@ describe("listSessionsFromStore subagent metadata", () => {
     });
   });
 
+  test("uses terminal assistant transcript state when lifecycle metadata remains running", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-session-utils-terminal-"));
+    try {
+      const now = Date.now();
+      const endedAt = now - 250;
+      const storePath = path.join(tempRoot, "sessions.json");
+      const childSessionKey = "agent:main:subagent:terminal-transcript";
+      const sessionId = "sess-terminal-transcript";
+      fs.writeFileSync(
+        path.join(tempRoot, `${sessionId}.jsonl`),
+        [
+          JSON.stringify({
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "WORKSPACE_HANDOFF" }],
+              stopReason: "stop",
+              timestamp: endedAt,
+            },
+          }),
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const store: Record<string, SessionEntry> = {
+        [childSessionKey]: {
+          sessionId,
+          updatedAt: now,
+          spawnedBy: "agent:main:main",
+          status: "running",
+          startedAt: now - 5_000,
+        } as SessionEntry,
+      };
+
+      addSubagentRunForTests({
+        runId: "run-terminal-transcript",
+        childSessionKey,
+        controllerSessionKey: "agent:main:main",
+        requesterSessionKey: "agent:main:main",
+        requesterDisplayKey: "main",
+        task: "terminal transcript task",
+        cleanup: "keep",
+        createdAt: now - 5_000,
+        startedAt: now - 5_000,
+      });
+
+      const result = listSessionsFromStore({
+        cfg,
+        storePath,
+        store,
+        opts: {},
+      });
+
+      const row = result.sessions.find((session) => session.key === childSessionKey);
+      expect(row).toMatchObject({
+        status: "done",
+        startedAt: now - 5_000,
+        endedAt,
+        runtimeMs: 4_750,
+      });
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps running when a newer user message follows the terminal assistant transcript", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-session-utils-terminal-"));
+    try {
+      const now = Date.now();
+      const storePath = path.join(tempRoot, "sessions.json");
+      const childSessionKey = "agent:main:subagent:newer-user";
+      const sessionId = "sess-newer-user";
+      fs.writeFileSync(
+        path.join(tempRoot, `${sessionId}.jsonl`),
+        [
+          JSON.stringify({
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "WORKSPACE_HANDOFF" }],
+              stopReason: "stop",
+              timestamp: now - 1_000,
+            },
+          }),
+          JSON.stringify({
+            message: {
+              role: "user",
+              content: [{ type: "text", text: "continue" }],
+              timestamp: now - 500,
+            },
+          }),
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const store: Record<string, SessionEntry> = {
+        [childSessionKey]: {
+          sessionId,
+          updatedAt: now,
+          spawnedBy: "agent:main:main",
+          status: "running",
+          startedAt: now - 5_000,
+        } as SessionEntry,
+      };
+
+      const result = listSessionsFromStore({
+        cfg,
+        storePath,
+        store,
+        opts: {},
+      });
+
+      const row = result.sessions.find((session) => session.key === childSessionKey);
+      expect(row?.status).toBe("running");
+      expect(row?.endedAt).toBeUndefined();
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   test("uses persisted active subagent runs when the local worker only has terminal snapshots", async () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-session-utils-subagent-"));
     const stateDir = path.join(tempRoot, "state");

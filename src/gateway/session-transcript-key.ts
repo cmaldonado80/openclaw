@@ -112,8 +112,7 @@ export function resolveSessionKeyForTranscriptFile(sessionFile: string): string 
 
     const resolvedMatches = Array.from(matchesBySessionId.entries())
       .map(([sessionId, matches]) => {
-        const resolvedKey =
-          resolvePreferredSessionKeyForSessionIdMatches(matches, sessionId) ?? matches[0]?.[0];
+        const resolvedKey = resolvePreferredSessionKeyForSessionIdMatches(matches, sessionId);
         const resolvedEntry = resolvedKey
           ? matches.find(([key]) => key === resolvedKey)?.[1]
           : undefined;

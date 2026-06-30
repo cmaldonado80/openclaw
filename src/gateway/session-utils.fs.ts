@@ -20,6 +20,12 @@ type SessionTitleFields = {
   lastMessagePreview: string | null;
 };
 
+export type SessionTerminalAssistantSnapshot = {
+  status: "done" | "failed" | "killed";
+  endedAt?: number;
+  stopReason: string;
+};
+
 type SessionTitleFieldsCacheEntry = SessionTitleFields & {
   mtimeMs: number;
   size: number;
@@ -392,6 +398,78 @@ function readLastMessagePreviewFromOpenTranscript(params: {
   return null;
 }
 
+function parseTranscriptTimestamp(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function resolveTerminalAssistantStatus(
+  stopReason: unknown,
+): SessionTerminalAssistantSnapshot["status"] | null {
+  if (stopReason === "stop" || stopReason === "end_turn" || stopReason === "completed") {
+    return "done";
+  }
+  if (stopReason === "error") {
+    return "failed";
+  }
+  if (stopReason === "aborted" || stopReason === "cancelled") {
+    return "killed";
+  }
+  return null;
+}
+
+function readLastTerminalAssistantSnapshotFromOpenTranscript(params: {
+  fd: number;
+  size: number;
+}): SessionTerminalAssistantSnapshot | null {
+  const readStart = Math.max(0, params.size - LAST_MSG_MAX_BYTES);
+  const readLen = Math.min(params.size, LAST_MSG_MAX_BYTES);
+  const buf = Buffer.alloc(readLen);
+  fs.readSync(params.fd, buf, 0, readLen, readStart);
+
+  const chunk = buf.toString("utf-8");
+  const lines = chunk.split(/\r?\n/).filter((line) => line.trim());
+  const tailLines = lines.slice(-LAST_MSG_MAX_LINES);
+
+  for (let i = tailLines.length - 1; i >= 0; i--) {
+    const line = tailLines[i];
+    try {
+      const parsed = JSON.parse(line) as Record<string, unknown>;
+      const msg =
+        parsed.message && typeof parsed.message === "object" && !Array.isArray(parsed.message)
+          ? (parsed.message as Record<string, unknown>)
+          : undefined;
+      const role = typeof msg?.role === "string" ? msg.role : undefined;
+      if (role === "user") {
+        return null;
+      }
+      if (role !== "assistant") {
+        continue;
+      }
+      const status = resolveTerminalAssistantStatus(msg?.stopReason);
+      if (!status) {
+        return null;
+      }
+      const endedAt =
+        parseTranscriptTimestamp(msg?.timestamp) ?? parseTranscriptTimestamp(parsed.timestamp);
+      return {
+        status,
+        endedAt,
+        stopReason: String(msg?.stopReason),
+      };
+    } catch {
+      // skip malformed
+    }
+  }
+  return null;
+}
+
 export function readLastMessagePreviewFromTranscript(
   sessionId: string,
   storePath: string | undefined,
@@ -410,6 +488,26 @@ export function readLastMessagePreviewFromTranscript(
       return null;
     }
     return readLastMessagePreviewFromOpenTranscript({ fd, size });
+  });
+}
+
+export function readLastTerminalAssistantSnapshotFromTranscript(
+  sessionId: string,
+  storePath: string | undefined,
+  sessionFile?: string,
+  agentId?: string,
+): SessionTerminalAssistantSnapshot | null {
+  const filePath = findExistingTranscriptPath(sessionId, storePath, sessionFile, agentId);
+  if (!filePath) {
+    return null;
+  }
+
+  return withOpenTranscriptFd(filePath, (fd) => {
+    const stat = fs.fstatSync(fd);
+    if (stat.size === 0) {
+      return null;
+    }
+    return readLastTerminalAssistantSnapshotFromOpenTranscript({ fd, size: stat.size });
   });
 }
 

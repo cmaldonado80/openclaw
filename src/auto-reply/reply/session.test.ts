@@ -221,6 +221,89 @@ afterEach(async () => {
   await sessionMcpTesting.resetSessionMcpRuntimeManager();
 });
 describe("initSessionState thread forking", () => {
+  it("keeps dashboard parent linkage without importing the parent transcript", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const root = await makeCaseDir("openclaw-dashboard-child-session-");
+    const sessionsDir = path.join(root, "sessions");
+    await fs.mkdir(sessionsDir);
+
+    const parentSessionId = "parent-dashboard-session";
+    const parentSessionFile = path.join(sessionsDir, "parent.jsonl");
+    const header = {
+      type: "session",
+      version: 3,
+      id: parentSessionId,
+      timestamp: new Date().toISOString(),
+      cwd: process.cwd(),
+    };
+    const message = {
+      type: "message",
+      id: "m1",
+      parentId: null,
+      timestamp: new Date().toISOString(),
+      message: { role: "user", content: "Old project objective" },
+    };
+    await fs.writeFile(
+      parentSessionFile,
+      `${JSON.stringify(header)}\n${JSON.stringify(message)}\n`,
+      "utf-8",
+    );
+
+    const storePath = path.join(root, "sessions.json");
+    const parentSessionKey = "agent:main:dashboard:parent";
+    const childSessionKey = "agent:main:dashboard:child";
+    const childSessionId = "dashboard-child-session";
+    const childSessionFile = path.join(sessionsDir, "child.jsonl");
+    await fs.writeFile(
+      childSessionFile,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: childSessionId,
+        timestamp: new Date().toISOString(),
+        cwd: process.cwd(),
+      })}\n`,
+      "utf-8",
+    );
+    await writeSessionStoreFast(storePath, {
+      [parentSessionKey]: {
+        sessionId: parentSessionId,
+        sessionFile: parentSessionFile,
+        updatedAt: Date.now(),
+      },
+      [childSessionKey]: {
+        sessionId: childSessionId,
+        sessionFile: childSessionFile,
+        parentSessionKey,
+        updatedAt: Date.now(),
+      },
+    });
+
+    const cfg = {
+      session: { store: storePath },
+    } as OpenClawConfig;
+
+    const result = await initSessionState({
+      ctx: {
+        Body: "Fresh dashboard request",
+        SessionKey: childSessionKey,
+        ParentSessionKey: parentSessionKey,
+      },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.sessionKey).toBe(childSessionKey);
+    expect(result.sessionEntry.sessionId).toBe(childSessionId);
+    expect(result.sessionEntry.parentSessionKey).toBe(parentSessionKey);
+    expect(result.sessionEntry.forkedFromParent).not.toBe(true);
+    expect(result.sessionEntry.sessionFile).toBe(childSessionFile);
+
+    const childTranscript = await fs.readFile(result.sessionEntry.sessionFile ?? "", "utf-8");
+    expect(childTranscript).not.toContain("Old project objective");
+    warn.mockRestore();
+  });
+
   it("forks a new session from the parent session file", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const root = await makeCaseDir("openclaw-thread-session-");

@@ -132,6 +132,7 @@ export function resolveEffectiveToolInventory(
     senderUsername: params.senderUsername ?? undefined,
     senderE164: params.senderE164 ?? undefined,
     agentAccountId: params.accountId ?? undefined,
+    spawnedBy: params.spawnedBy ?? undefined,
     currentChannelId: params.currentChannelId,
     currentThreadTs: params.currentThreadTs,
     currentMessageId: params.currentMessageId,

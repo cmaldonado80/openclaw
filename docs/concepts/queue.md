@@ -26,7 +26,9 @@ We serialize inbound auto-reply runs (all channels) through a tiny in-process qu
 
 Inbound messages can steer the current run, wait for a followup turn, or do both:
 
-- `steer`: inject immediately into the current run (cancels pending tool calls after the next tool boundary). If not streaming, falls back to followup.
+- `steer`: inject into the current run at the next model boundary. The current assistant
+  turn finishes its already-issued tool calls first; steering no longer skips remaining
+  tool calls from that assistant message. If not streaming, it falls back to followup.
 - `followup`: enqueue for the next agent turn after the current run ends.
 - `collect`: coalesce all queued messages into a **single** followup turn (default). If messages target different channels/threads, they drain individually to preserve routing.
 - `steer-backlog` (aka `steer+backlog`): steer now **and** preserve the message for a followup turn.

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import {
   DEFAULT_PROVIDER,
@@ -29,6 +30,10 @@ const DEFAULT_QUERY_MODE = "recent" as const;
 const DEFAULT_QMD_SEARCH_MODE = "search" as const;
 const DEFAULT_TRANSCRIPT_DIR = "active-memory";
 const TOGGLE_STATE_FILE = "session-toggles.json";
+const MEMORY_LANCEDB_PLUGIN_ID = "memory-lancedb";
+const MEMORY_LANCEDB_DEFAULT_DB_PATH = path.join(homedir(), ".openclaw", "memory", "lancedb");
+const MEMORY_FRESHNESS_MAX_DEPTH = 4;
+const MEMORY_FRESHNESS_MAX_ENTRIES = 512;
 
 const NO_RECALL_VALUES = new Set([
   "",
@@ -926,9 +931,90 @@ function buildCacheKey(params: {
   sessionKey?: string;
   sessionId?: string;
   query: string;
+  memoryFreshnessKey?: string;
 }): string {
   const hash = crypto.createHash("sha1").update(params.query).digest("hex");
-  return `${params.agentId}:${params.sessionKey ?? params.sessionId ?? "none"}:${hash}`;
+  return `${params.agentId}:${params.sessionKey ?? params.sessionId ?? "none"}:${params.memoryFreshnessKey ?? "memory-unknown"}:${hash}`;
+}
+
+function resolveMemoryLanceDbConfig(cfg: OpenClawConfig): Record<string, unknown> | undefined {
+  const slots = asRecord(cfg.plugins?.slots);
+  if (slots?.memory !== MEMORY_LANCEDB_PLUGIN_ID) {
+    return undefined;
+  }
+  const entry = asRecord(cfg.plugins?.entries?.[MEMORY_LANCEDB_PLUGIN_ID]);
+  if (entry?.enabled === false) {
+    return undefined;
+  }
+  return asRecord(entry?.config) ?? {};
+}
+
+function resolveMemoryLanceDbPath(api: OpenClawPluginApi): string | undefined {
+  let cfg: OpenClawConfig | undefined;
+  try {
+    cfg = api.runtime.config.loadConfig();
+  } catch {
+    cfg = api.config;
+  }
+  const memoryConfig = cfg ? resolveMemoryLanceDbConfig(cfg) : undefined;
+  if (!memoryConfig) {
+    return undefined;
+  }
+  const configuredPath = typeof memoryConfig.dbPath === "string" ? memoryConfig.dbPath.trim() : "";
+  if (!configuredPath) {
+    return MEMORY_LANCEDB_DEFAULT_DB_PATH;
+  }
+  return path.isAbsolute(configuredPath) ? configuredPath : path.resolve(configuredPath);
+}
+
+async function collectMemoryFreshnessParts(
+  targetPath: string,
+  state: { entries: number },
+  depth = 0,
+): Promise<string[]> {
+  if (state.entries >= MEMORY_FRESHNESS_MAX_ENTRIES || depth > MEMORY_FRESHNESS_MAX_DEPTH) {
+    return [];
+  }
+  let stat;
+  try {
+    stat = await fs.stat(targetPath);
+  } catch {
+    return [`missing:${targetPath}`];
+  }
+
+  state.entries += 1;
+  const relativeName = path.basename(targetPath);
+  const current = `${relativeName}:${Math.trunc(stat.mtimeMs)}:${stat.size}`;
+  if (!stat.isDirectory()) {
+    return [current];
+  }
+
+  let dirents;
+  try {
+    dirents = await fs.readdir(targetPath, { withFileTypes: true });
+  } catch {
+    return [current];
+  }
+
+  const children: string[] = [current];
+  for (const dirent of dirents.toSorted((left, right) => left.name.localeCompare(right.name))) {
+    if (state.entries >= MEMORY_FRESHNESS_MAX_ENTRIES) {
+      break;
+    }
+    children.push(
+      ...(await collectMemoryFreshnessParts(path.join(targetPath, dirent.name), state, depth + 1)),
+    );
+  }
+  return children;
+}
+
+async function resolveMemoryFreshnessKey(api: OpenClawPluginApi): Promise<string | undefined> {
+  const dbPath = resolveMemoryLanceDbPath(api);
+  if (!dbPath) {
+    return undefined;
+  }
+  const parts = await collectMemoryFreshnessParts(dbPath, { entries: 0 });
+  return crypto.createHash("sha1").update(parts.join("\n")).digest("hex");
 }
 
 function getCachedResult(cacheKey: string): ActiveRecallResult | undefined {
@@ -1527,7 +1613,9 @@ function extractRecentTurns(messages: unknown[]): ActiveRecallRecentTurn[] {
     }
     const rawText = extractTextContent(typed.content);
     const text =
-      role === "assistant" ? stripRecalledContextNoise(rawText) : stripInjectedActiveMemoryPrefixOnly(rawText);
+      role === "assistant"
+        ? stripRecalledContextNoise(rawText)
+        : stripInjectedActiveMemoryPrefixOnly(rawText);
     if (!text) {
       continue;
     }
@@ -1718,11 +1806,13 @@ async function maybeResolveActiveRecall(params: {
   currentModelId?: string;
 }): Promise<ActiveRecallResult> {
   const startedAt = Date.now();
+  const memoryFreshnessKey = await resolveMemoryFreshnessKey(params.api);
   const cacheKey = buildCacheKey({
     agentId: params.agentId,
     sessionKey: params.sessionKey,
     sessionId: params.sessionId,
     query: params.query,
+    memoryFreshnessKey,
   });
   const cached = getCachedResult(cacheKey);
   const resolvedModelRef = getModelRef(params.api, params.agentId, params.config, {

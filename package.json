@@ -27,6 +27,7 @@
     "README.md",
     "assets/",
     "dist/",
+    "dist/extensions/memory-lancedb/**",
     "!dist/**/*.map",
     "!dist/plugin-sdk/.tsbuildinfo",
     "!dist/extensions/*/node_modules/**",

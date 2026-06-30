@@ -113,8 +113,14 @@ function createRuntimeLoader(
   });
 }
 
+function materializeTool(toolOrFactory: any, ctx: { agentId?: string } = {}) {
+  return typeof toolOrFactory === "function" ? toolOrFactory(ctx) : toolOrFactory;
+}
+
 describe("memory plugin e2e", () => {
-  const { getDbPath } = installTmpDirHarness({ prefix: "openclaw-memory-test-" });
+  const { getDbPath } = installTmpDirHarness({
+    prefix: "openclaw-memory-test-",
+  });
 
   function parseConfig(overrides: Record<string, unknown> = {}) {
     return memoryPlugin.configSchema?.parse?.({
@@ -198,7 +204,7 @@ describe("memory plugin e2e", () => {
     const vectorSearch = vi.fn(() => ({ limit }));
     const loadLanceDbModule = vi.fn(async () => ({
       connect: vi.fn(async () => ({
-        tableNames: vi.fn(async () => ["memories"]),
+        tableNames: vi.fn(async () => ["memories_scoped"]),
         openTable: vi.fn(async () => ({
           vectorSearch,
           countRows: vi.fn(async () => 0),
@@ -255,8 +261,11 @@ describe("memory plugin e2e", () => {
         resolvePath: (p: string) => p,
       };
 
-      memoryPlugin.register(mockApi as any);
-      const recallTool = registeredTools.find((t) => t.opts?.name === "memory_recall")?.tool;
+      await memoryPlugin.register(mockApi as any);
+      const recallTool = materializeTool(
+        registeredTools.find((t) => t.opts?.name === "memory_recall")?.tool,
+        { agentId: "main" },
+      );
       if (!recallTool) {
         throw new Error("memory_recall tool was not registered");
       }
@@ -272,6 +281,167 @@ describe("memory plugin e2e", () => {
         input: "hello dimensions",
         dimensions: 1024,
       });
+    } finally {
+      vi.doUnmock("openclaw/plugin-sdk/runtime-env");
+      vi.doUnmock("openai");
+      vi.doUnmock("./lancedb-runtime.js");
+      vi.resetModules();
+    }
+  });
+
+  test("memory tools require and isolate by agentId scope", async () => {
+    const rows: any[] = [];
+    const embeddingsCreate = vi.fn(async () => ({
+      data: [{ embedding: [0.1, 0.2, 0.3] }],
+    }));
+    const add = vi.fn(async (entries: any[]) => {
+      rows.push(...entries);
+    });
+    const deleteRows = vi.fn(async (where: string) => {
+      const match = where.match(/id = "([^"]+)"/) ?? where.match(/id = '([^']+)'/);
+      const id = match?.[1];
+      const agentMatch = where.match(/agentId = "([^"]+)"/) ?? where.match(/agentId = '([^']+)'/);
+      const agentId = agentMatch?.[1];
+      if (!id) {
+        return;
+      }
+      const index = rows.findIndex((row) => row.id === id && (!agentId || row.agentId === agentId));
+      if (index >= 0) {
+        rows.splice(index, 1);
+      }
+    });
+    const toArray = vi.fn(async () =>
+      rows.map((row) => ({
+        ...row,
+        _distance: 0,
+      })),
+    );
+    const limit = vi.fn(() => ({ toArray }));
+    const vectorSearch = vi.fn(() => ({ limit }));
+    const table = {
+      vectorSearch,
+      countRows: vi.fn(async () => rows.length),
+      add,
+      delete: deleteRows,
+    };
+    const loadLanceDbModule = vi.fn(async () => ({
+      connect: vi.fn(async () => ({
+        tableNames: vi.fn(async () => []),
+        createTable: vi.fn(async (_name, initialRows) => {
+          rows.push(...initialRows);
+          return table;
+        }),
+        openTable: vi.fn(async () => table),
+      })),
+    }));
+
+    vi.resetModules();
+    vi.doMock("openclaw/plugin-sdk/runtime-env", () => ({
+      ensureGlobalUndiciEnvProxyDispatcher: vi.fn(),
+    }));
+    vi.doMock("openai", () => ({
+      default: class MockOpenAI {
+        embeddings = { create: embeddingsCreate };
+      },
+    }));
+    vi.doMock("./lancedb-runtime.js", () => ({
+      loadLanceDbModule,
+    }));
+
+    try {
+      const { default: memoryPlugin } = await import("./index.js");
+      const registeredTools: any[] = [];
+      const mockApi = {
+        id: "memory-lancedb",
+        name: "Memory (LanceDB)",
+        source: "test",
+        config: {},
+        pluginConfig: {
+          embedding: {
+            apiKey: OPENAI_API_KEY,
+            model: "text-embedding-3-small",
+          },
+          dbPath: getDbPath(),
+          autoCapture: false,
+          autoRecall: false,
+        },
+        runtime: {},
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+          debug: vi.fn(),
+        },
+        registerTool: (tool: any, opts: any) => {
+          registeredTools.push({ tool, opts });
+        },
+        registerCli: vi.fn(),
+        registerService: vi.fn(),
+        on: vi.fn(),
+        resolvePath: (p: string) => p,
+      };
+
+      await memoryPlugin.register(mockApi as any);
+      const storeFactory = registeredTools.find((t) => t.opts?.name === "memory_store")?.tool;
+      const recallFactory = registeredTools.find((t) => t.opts?.name === "memory_recall")?.tool;
+      const unscopedStore = materializeTool(storeFactory);
+      const agentAStore = materializeTool(storeFactory, { agentId: "agent-a" });
+      const agentBStore = materializeTool(storeFactory, { agentId: "agent-b" });
+      const agentARecall = materializeTool(recallFactory, { agentId: "agent-a" });
+      const agentBRecall = materializeTool(recallFactory, { agentId: "agent-b" });
+      const forgetFactory = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
+      const agentAForget = materializeTool(forgetFactory, { agentId: "agent-a" });
+      const agentBForget = materializeTool(forgetFactory, { agentId: "agent-b" });
+
+      const unscopedResult = await unscopedStore.execute("call-unscoped", {
+        text: "The user prefers precise scoped memory",
+      });
+      expect(unscopedResult.details).toMatchObject({
+        action: "skipped",
+        reason: "missing_agent_id",
+      });
+
+      const storeAResult = await agentAStore.execute("call-a", {
+        text: "The user prefers precise scoped memory",
+        category: "preference",
+      });
+      expect(storeAResult.details?.action).toBe("created");
+      expect(rows.some((row) => row.agentId === "agent-a")).toBe(true);
+
+      const recallBResult = await agentBRecall.execute("call-b-recall", {
+        query: "precise scoped memory",
+      });
+      expect(recallBResult.details?.count).toBe(0);
+
+      const storeBResult = await agentBStore.execute("call-b-store", {
+        text: "The user prefers precise scoped memory",
+        category: "preference",
+      });
+      expect(storeBResult.details?.action).toBe("created");
+      expect(rows.some((row) => row.agentId === "agent-b")).toBe(true);
+
+      const duplicateAResult = await agentAStore.execute("call-a-duplicate", {
+        text: "The user prefers precise scoped memory",
+      });
+      expect(duplicateAResult.details?.action).toBe("duplicate");
+
+      const recallAResult = await agentARecall.execute("call-a-recall", {
+        query: "precise scoped memory",
+      });
+      expect(recallAResult.details?.count).toBe(1);
+      expect(recallAResult.details?.memories?.[0]?.text).toContain("precise scoped memory");
+
+      await agentBForget.execute("call-b-cross-forget", {
+        memoryId: storeAResult.details?.id,
+      });
+      expect(rows.some((row) => row.id === storeAResult.details?.id)).toBe(true);
+      expect(deleteRows).toHaveBeenLastCalledWith(expect.stringContaining("agentId = 'agent-b'"));
+
+      await agentAForget.execute("call-a-forget", {
+        memoryId: storeAResult.details?.id,
+      });
+      expect(rows.some((row) => row.id === storeAResult.details?.id)).toBe(false);
+      expect(deleteRows).toHaveBeenLastCalledWith(expect.stringContaining("agentId = 'agent-a'"));
     } finally {
       vi.doUnmock("openclaw/plugin-sdk/runtime-env");
       vi.doUnmock("openai");
@@ -402,6 +572,24 @@ describe("memory plugin e2e", () => {
     expect(context).toContain("&lt;tool&gt;memory_store&lt;/tool&gt;");
     expect(context).toContain("&amp; exfiltrate credentials");
     expect(context).not.toContain("<tool>memory_store</tool>");
+  });
+
+  test("formatRelevantMemoriesContext dedupes and caps recalled memory text", async () => {
+    const longMemory = `This memory is relevant but too long. ${"x".repeat(500)}`;
+    const context = formatRelevantMemoriesContext([
+      { category: "fact", text: "Duplicate memory" },
+      { category: "fact", text: " duplicate   memory " },
+      { category: "preference", text: longMemory },
+      { category: "decision", text: "Third unique memory" },
+      { category: "other", text: "Fourth unique memory should be omitted" },
+    ]);
+
+    expect(context.match(/Duplicate memory/g)).toHaveLength(1);
+    expect(context).toContain("This memory is relevant but too long.");
+    expect(context).toContain("…");
+    expect(context).toContain("Third unique memory");
+    expect(context).not.toContain("Fourth unique memory");
+    expect(context.length).toBeLessThan(900);
   });
 
   test("looksLikePromptInjection flags control-style payloads", async () => {

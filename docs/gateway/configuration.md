@@ -342,6 +342,7 @@ When validation fails:
     - Binds each relay-backed registration to the gateway identity that the iOS app paired with, so another gateway cannot reuse the stored registration.
     - Keeps local/manual iOS builds on direct APNs. Relay-backed sends apply only to official distributed builds that registered through the relay.
     - Must match the relay base URL baked into the official/TestFlight iOS build, so registration and send traffic reach the same relay deployment.
+    - Keeps Talk relay session creation gateway-owned: `talk.client.create` is client-owned; gateway relay sessions use `talk.session.create`.
 
     End-to-end flow:
 

@@ -215,6 +215,7 @@ See `apps/ios/VERSIONING.md` for the detailed spec.
 - If the relay base URL changes in a later build, the app refreshes the relay registration instead of reusing the old relay origin.
 - Relay mode requires a reachable relay base URL and uses App Attest plus the app receipt during registration.
 - Gateway-side relay sending is configured through `gateway.push.apns.relay.baseUrl` in `openclaw.json`. `OPENCLAW_APNS_RELAY_BASE_URL` remains a temporary env override only.
+- Talk relay session creation is gateway-owned: keep `talk.client.create` client-owned and use `talk.session.create` for gateway relay sessions.
 
 ## Official Build Relay Trust Model
 

@@ -1031,6 +1031,55 @@ describe("AcpSessionManager", () => {
     );
   });
 
+  it("does not pass thinking runtime options into ensureSession startup", async () => {
+    const runtimeState = createRuntime();
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
+      id: "acpx",
+      runtime: runtimeState.runtime,
+    });
+    hoisted.upsertAcpSessionMetaMock.mockImplementation(async (paramsUnknown: unknown) => {
+      const params = paramsUnknown as {
+        sessionKey: string;
+        mutate: (
+          current: SessionAcpMeta | undefined,
+          entry: { acp?: SessionAcpMeta } | undefined,
+        ) => SessionAcpMeta | null | undefined;
+      };
+      const next = params.mutate(undefined, undefined);
+      return next
+        ? { sessionKey: params.sessionKey, storeSessionKey: params.sessionKey, acp: next }
+        : null;
+    });
+
+    const manager = new AcpSessionManager();
+    await manager.initializeSession({
+      cfg: baseCfg,
+      sessionKey: "agent:codex:acp:session-startup-thinking",
+      agent: "codex",
+      mode: "oneshot",
+      runtimeOptions: {
+        model: "openai/gpt-5.5",
+        thinking: "high",
+        cwd: "/workspace/project",
+      },
+    });
+
+    expect(runtimeState.ensureSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "agent:codex:acp:session-startup-thinking",
+        agent: "codex",
+        mode: "oneshot",
+        model: "openai/gpt-5.5",
+        cwd: "/workspace/project",
+      }),
+    );
+    expect(runtimeState.ensureSession).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        thinking: "high",
+      }),
+    );
+  });
+
   it("does not resume persisted ACP identity for oneshot sessions after restart", async () => {
     const runtimeState = createRuntime();
     hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
@@ -2570,6 +2619,7 @@ describe("AcpSessionManager", () => {
         runtimeOptions: {
           runtimeMode: "plan",
           model: "openai-codex/gpt-5.4",
+          thinking: "high",
           permissionProfile: "strict",
           timeoutSeconds: 120,
         },
@@ -2594,6 +2644,12 @@ describe("AcpSessionManager", () => {
       expect.objectContaining({
         key: "model",
         value: "openai-codex/gpt-5.4",
+      }),
+    );
+    expect(runtimeState.setConfigOption).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "thinking",
+        value: "high",
       }),
     );
     expect(runtimeState.setConfigOption).toHaveBeenCalledWith(

@@ -189,7 +189,7 @@ export type AgentDefaultsConfig = {
   /**
    * Controls when workspace bootstrap files (AGENTS.md, SOUL.md, etc.) are
    * injected into the system prompt:
-   * - always: inject on every turn (default)
+   * - always: inject on every turn
    * - continuation-skip: skip injection on safe continuation turns once the
    *   transcript already contains a completed assistant turn
    */

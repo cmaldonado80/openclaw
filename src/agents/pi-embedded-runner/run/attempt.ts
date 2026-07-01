@@ -2008,16 +2008,6 @@ export async function runEmbeddedAttempt(
               messages: btwSnapshotMessages,
               inFlightPrompt: effectivePrompt,
             });
-            if (shouldRecordCompletedBootstrapTurn && !bootstrapContextMarkerPersisted) {
-              bootstrapContextMarkerPersisted = appendFullBootstrapContextMarker({
-                sessionManager,
-                runId: params.runId,
-                sessionId: params.sessionId,
-                phase: "prompt-start",
-                warn: (message) => log.warn(message),
-              });
-            }
-
             // Only pass images option if there are actually images to pass
             // This avoids potential issues with models that don't expect the images parameter
             if (imageResult.images.length > 0) {

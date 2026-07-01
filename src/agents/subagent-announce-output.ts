@@ -17,6 +17,35 @@ import { isAnnounceSkip } from "./tools/sessions-send-tokens.js";
 
 const FAST_TEST_RETRY_INTERVAL_MS = 8;
 
+/**
+ * Terminal handoff markers that indicate a structured completion signal.
+ * When found in any message role (assistant text, tool result, etc.),
+ * the containing text should be prioritized as the subagent findings.
+ */
+const TERMINAL_HANDOFF_MARKERS = [
+  "WORKSPACE_HANDOFF",
+  "ASSISTANT_HANDOFF",
+  "CONSOLIDATOR_HANDOFF",
+  "CAPABILITY_HANDOFF",
+  "BLOCKED_TASK",
+  "APPROVAL_REQUEST",
+] as const;
+
+function findTerminalMarkerText(text: string): string | undefined {
+  if (!text || typeof text !== "string") {
+    return undefined;
+  }
+  for (const marker of TERMINAL_HANDOFF_MARKERS) {
+    const idx = text.indexOf(marker);
+    if (idx !== -1) {
+      // Return from the marker to end-of-text (or a reasonable cap)
+      const segment = text.slice(idx);
+      return segment.length > 8000 ? `${segment.slice(0, 7997)}...` : segment;
+    }
+  }
+  return undefined;
+}
+
 type SubagentAnnounceOutputDeps = {
   callGateway: typeof callGateway;
   loadConfig: typeof loadConfig;
@@ -44,6 +73,7 @@ type SubagentOutputSnapshot = {
   latestAssistantText?: string;
   latestSilentText?: string;
   latestRawText?: string;
+  terminalMarkerText?: string;
   assistantFragments: string[];
   toolCallCount: number;
 };
@@ -187,11 +217,24 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
       snapshot.latestSilentText = undefined;
       snapshot.latestAssistantText = text;
       snapshot.assistantFragments.push(text);
+      // Also check assistant text for terminal markers so they take priority
+      // over non-marker assistant fragments produced earlier in the run.
+      const assistantMarkerText = findTerminalMarkerText(text);
+      if (assistantMarkerText) {
+        snapshot.terminalMarkerText = assistantMarkerText;
+      }
       continue;
     }
     const text = extractSubagentOutputText(message).trim();
     if (text) {
       snapshot.latestRawText = text;
+      // Check for terminal handoff markers in tool results and non-assistant messages.
+      // These take priority over assistant text in the selection chain because they
+      // represent structured completion signals that must be surfaced to the requester.
+      const markerText = findTerminalMarkerText(text);
+      if (markerText) {
+        snapshot.terminalMarkerText = markerText;
+      }
     }
   }
   return snapshot;
@@ -224,6 +267,12 @@ function selectSubagentOutputText(
   snapshot: SubagentOutputSnapshot,
   outcome?: SubagentRunOutcome,
 ): string | undefined {
+  // Terminal handoff markers in any message role take top priority:
+  // they represent structured completion signals (WORKSPACE_HANDOFF, etc.)
+  // that must be surfaced even if earlier assistant text was produced.
+  if (snapshot.terminalMarkerText) {
+    return snapshot.terminalMarkerText;
+  }
   if (snapshot.latestSilentText) {
     return snapshot.latestSilentText;
   }

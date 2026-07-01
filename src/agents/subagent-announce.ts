@@ -411,9 +411,7 @@ export async function runSubagentAnnounceFlow(params: {
     const findings =
       childCompletionFindings ||
       reply ||
-      (outcome.status !== "ok"
-        ? `BLOCKED_TASK\n\nSubagent run ${statusLabel}. No terminal output was produced. Error: ${outcome.error || "unknown"}. Task: ${taskLabel}.`
-        : "(no output)");
+      `BLOCKED_TASK\n\nSubagent run ${statusLabel}. No terminal output was produced. Error: ${outcome.error || "none"}. Task: ${taskLabel}.`;
 
     let requesterIsSubagent = requesterIsInternalSession();
     if (requesterIsSubagent) {

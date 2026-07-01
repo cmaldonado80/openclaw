@@ -1902,6 +1902,46 @@ describe("subagent announce formatting", () => {
     expect(msg).toContain("tool output only");
   });
 
+  it("prioritizes terminal handoff markers from tool output in completion-mode", async () => {
+    chatHistoryMock.mockResolvedValueOnce({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "intermediate assistant note" }],
+        },
+        {
+          role: "toolResult",
+          content: [
+            {
+              type: "text",
+              text: "tool wrapper\nWORKSPACE_HANDOFF\n\nvalidated from tool result",
+            },
+          ],
+        },
+      ],
+    });
+    readLatestAssistantReplyMock.mockResolvedValue("");
+
+    const didAnnounce = await runSubagentAnnounceFlow({
+      childSessionKey: "agent:main:subagent:worker",
+      childRunId: "run-completion-tool-marker",
+      requesterSessionKey: "agent:main:main",
+      requesterDisplayKey: "main",
+      requesterOrigin: { channel: "discord", to: "channel:12345", accountId: "acct-1" },
+      expectsCompletionMessage: true,
+      ...defaultOutcomeAnnounce,
+    });
+
+    expect(didAnnounce).toBe(true);
+    expect(sendSpy).not.toHaveBeenCalled();
+    expect(agentSpy).toHaveBeenCalledTimes(1);
+    const call = agentSpy.mock.calls[0]?.[0] as { params?: { message?: string } };
+    const msg = call?.params?.message as string;
+    expect(msg).toContain("WORKSPACE_HANDOFF");
+    expect(msg).toContain("validated from tool result");
+    expect(msg).not.toContain("intermediate assistant note");
+  });
+
   it("ignores user text when deriving fallback completion output", async () => {
     chatHistoryMock.mockResolvedValueOnce({
       messages: [
@@ -1928,7 +1968,8 @@ describe("subagent announce formatting", () => {
     expect(agentSpy).toHaveBeenCalledTimes(1);
     const call = agentSpy.mock.calls[0]?.[0] as { params?: { message?: string } };
     const msg = call?.params?.message as string;
-    expect(msg).toContain("(no output)");
+    expect(msg).toContain("BLOCKED_TASK");
+    expect(msg).toContain("No terminal output was produced");
     expect(msg).not.toContain("user prompt should not be announced");
   });
 

@@ -4,6 +4,7 @@ type IdleAwareAgent = {
 
 type ToolResultFlushManager = {
   flushPendingToolResults?: (() => void) | undefined;
+  flushPendingToolResultsForced?: (() => void) | undefined;
   clearPendingToolResults?: (() => void) | undefined;
 };
 
@@ -50,8 +51,15 @@ export async function flushPendingToolResultsAfterIdle(opts: {
     opts.agent,
     opts.timeoutMs ?? DEFAULT_WAIT_FOR_IDLE_TIMEOUT_MS,
   );
-  if (timedOut && opts.clearPendingOnTimeout && opts.sessionManager?.clearPendingToolResults) {
-    opts.sessionManager.clearPendingToolResults();
+  if (timedOut && opts.clearPendingOnTimeout) {
+    // On timeout, use forced flush to persist synthetic results regardless of
+    // provider policy. This prevents permanently orphaned tool_use blocks in the
+    // JSONL transcript. If forced flush is not available, fall back to clear.
+    if (opts.sessionManager?.flushPendingToolResultsForced) {
+      opts.sessionManager.flushPendingToolResultsForced();
+    } else {
+      opts.sessionManager?.clearPendingToolResults?.();
+    }
     return;
   }
   opts.sessionManager?.flushPendingToolResults?.();

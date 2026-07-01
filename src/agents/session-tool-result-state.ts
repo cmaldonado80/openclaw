@@ -2,6 +2,7 @@ export type PendingToolCall = { id: string; name?: string };
 
 export type PendingToolCallState = {
   size: () => number;
+  has: (id: string) => boolean;
   entries: () => IterableIterator<[string, string | undefined]>;
   getToolName: (id: string) => string | undefined;
   delete: (id: string) => void;
@@ -18,6 +19,7 @@ export function createPendingToolCallState(): PendingToolCallState {
 
   return {
     size: () => pending.size,
+    has: (id: string) => pending.has(id),
     entries: () => pending.entries(),
     getToolName: (id: string) => pending.get(id),
     delete: (id: string) => {

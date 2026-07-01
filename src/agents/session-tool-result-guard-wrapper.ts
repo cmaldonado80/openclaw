@@ -10,6 +10,12 @@ import { installSessionToolResultGuard } from "./session-tool-result-guard.js";
 export type GuardedSessionManager = SessionManager & {
   /** Flush any synthetic tool results for pending tool calls. Idempotent. */
   flushPendingToolResults?: () => void;
+  /**
+   * Force-flush pending tool results with synthetic results, regardless of
+   * provider policy. Used during session cleanup to prevent permanently
+   * orphaned tool_use blocks.
+   */
+  flushPendingToolResultsForced?: () => void;
   /** Clear pending tool calls without persisting synthetic tool results. Idempotent. */
   clearPendingToolResults?: () => void;
 };
@@ -75,6 +81,7 @@ export function guardSessionManager(
     beforeMessageWriteHook: beforeMessageWrite,
   });
   (sessionManager as GuardedSessionManager).flushPendingToolResults = guard.flushPendingToolResults;
+  (sessionManager as GuardedSessionManager).flushPendingToolResultsForced = guard.flushPendingToolResultsForced;
   (sessionManager as GuardedSessionManager).clearPendingToolResults = guard.clearPendingToolResults;
   return sessionManager as GuardedSessionManager;
 }

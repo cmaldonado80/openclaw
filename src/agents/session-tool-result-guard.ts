@@ -11,6 +11,41 @@ import {
   DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS,
   truncateToolResultMessage,
 } from "./pi-embedded-runner/tool-result-truncation.js";
+
+/**
+ * Content block types that represent tool calls.
+ * Used to strip partial tool calls from aborted/error assistant messages.
+ */
+const TOOL_CALL_BLOCK_TYPES = new Set(["toolCall", "toolUse", "functionCall", "function_call"]);
+
+/**
+ * When a stream is interrupted (stopReason "aborted" or "error"), the assistant
+ * message may contain partial tool call blocks (e.g., missing arguments, truncated JSON).
+ * If persisted as-is, these orphaned tool_use blocks force repairToolUseResultPairing
+ * to synthesize missing results on every subsequent replay — wasting context tokens
+ * and causing repetitive synthetic error results.
+ *
+ * This function strips tool-call-type blocks from the assistant message content,
+ * preserving text, thinking, and other non-tool blocks. This prevents orphaned
+ * tool calls from entering the session JSONL during stream interruptions.
+ */
+function stripToolCallBlocks(message: AgentMessage): AgentMessage {
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) {
+    return message;
+  }
+  const filtered = content.filter((block) => {
+    if (!block || typeof block !== "object") {
+      return true;
+    }
+    const type = (block as { type?: unknown }).type;
+    return typeof type !== "string" || !TOOL_CALL_BLOCK_TYPES.has(type);
+  });
+  if (filtered.length === content.length) {
+    return message;
+  }
+  return { ...message, content: filtered } as AgentMessage;
+}
 import {
   getRawSessionAppendMessage,
   setRawSessionAppendMessage,
@@ -101,7 +136,8 @@ export function installSessionToolResultGuard(
     ) => PluginHookBeforeMessageWriteResult | undefined;
   },
 ): {
-  flushPendingToolResults: () => void;
+  flushPendingToolResults: (options?: { force?: boolean }) => void;
+  flushPendingToolResultsForced: () => void;
   clearPendingToolResults: () => void;
   getPendingIds: () => string[];
 } {
@@ -142,11 +178,18 @@ export function installSessionToolResultGuard(
     return msg;
   };
 
-  const flushPendingToolResults = () => {
+  const flushPendingToolResults = (options?: { force?: boolean }) => {
     if (pendingState.size() === 0) {
       return;
     }
-    if (allowSyntheticToolResults) {
+    // When `force` is true, always insert synthetic results regardless of provider
+    // policy. This is critical for session cleanup: when the agent doesn't become
+    // idle within the timeout, we must still persist synthetic results to prevent
+    // permanently orphaned tool_use blocks in the JSONL transcript. Without this,
+    // every subsequent replay would need to re-run repairToolUseResultPairing,
+    // wasting context tokens and risking API 400 errors if repair has edge cases.
+    const shouldInsertSynthetics = allowSyntheticToolResults || options?.force === true;
+    if (shouldInsertSynthetics) {
       for (const [id, name] of pendingState.entries()) {
         const synthetic = makeMissingToolResult({ toolCallId: id, toolName: name });
         const flushed = applyBeforeWriteHook(
@@ -162,6 +205,15 @@ export function installSessionToolResultGuard(
       }
     }
     pendingState.clear();
+  };
+
+  /**
+   * Force-flush pending tool results with synthetic results, regardless of
+   * provider policy. Used during session cleanup to prevent permanently
+   * orphaned tool_use blocks.
+   */
+  const flushPendingToolResultsForced = () => {
+    flushPendingToolResults({ force: true });
   };
 
   const clearPendingToolResults = () => {
@@ -188,6 +240,17 @@ export function installSessionToolResultGuard(
     if (nextRole === "toolResult") {
       const id = extractToolResultId(nextMessage as Extract<AgentMessage, { role: "toolResult" }>);
       const toolName = id ? pendingState.getToolName(id) : undefined;
+      // Detect orphan tool results: results that arrive without a matching pending
+      // tool call. These will be dropped by repairToolUseResultPairing on replay,
+      // so log a warning for diagnostics. The result is still persisted to avoid
+      // data loss in case the pending state was cleared prematurely.
+      if (id && !pendingState.has(id)) {
+        const sessionKey = opts?.sessionKey ?? "unknown";
+        console.warn(
+          `[openclaw] orphan tool result: sessionKey=${sessionKey} toolCallId=${id} ` +
+          `has no matching pending tool call. Result persisted but will be dropped on replay.`,
+        );
+      }
       if (id) {
         pendingState.delete(id);
       }
@@ -208,13 +271,16 @@ export function installSessionToolResultGuard(
       return originalAppend(persisted as never);
     }
 
-    // Skip tool call extraction for aborted/errored assistant messages.
     // When stopReason is "error" or "aborted", the tool_use blocks may be incomplete
-    // and should not have synthetic tool_results created. Creating synthetic results
-    // for incomplete tool calls causes API 400 errors:
-    // "unexpected tool_use_id found in tool_result blocks"
-    // This matches the behavior in repairToolUseResultPairing (session-transcript-repair.ts)
+    // (missing IDs, truncated arguments, partial JSON). Strip them before persistence
+  // to prevent orphaned tool_use blocks from entering the session JSONL, which would
+  // force repairToolUseResultPairing to synthesize missing results on every subsequent
+  // replay, wasting context and causing repetitive synthetic error results.
+    // This also prevents API 400 errors: "unexpected tool_use_id found in tool_result blocks"
     const stopReason = (nextMessage as { stopReason?: string }).stopReason;
+    if (nextRole === "assistant" && (stopReason === "aborted" || stopReason === "error")) {
+      nextMessage = stripToolCallBlocks(nextMessage);
+    }
     const toolCalls =
       nextRole === "assistant" && stopReason !== "aborted" && stopReason !== "error"
         ? extractToolCallsFromAssistant(nextMessage as Extract<AgentMessage, { role: "assistant" }>)
@@ -264,6 +330,7 @@ export function installSessionToolResultGuard(
 
   return {
     flushPendingToolResults,
+    flushPendingToolResultsForced,
     clearPendingToolResults,
     getPendingIds: pendingState.getPendingIds,
   };

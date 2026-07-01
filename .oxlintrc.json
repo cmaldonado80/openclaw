@@ -12,7 +12,6 @@
     "eslint/no-await-in-loop": "off",
     "eslint/no-new": "error",
     "eslint/no-shadow": "off",
-    "eslint/no-underscore-dangle": "off",
     "eslint/no-unmodified-loop-condition": "error",
     "eslint/no-unused-vars": "off",
     "eslint-plugin-unicorn/prefer-set-size": "error",

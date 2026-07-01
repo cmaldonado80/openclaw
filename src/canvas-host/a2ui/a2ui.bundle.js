@@ -286,7 +286,9 @@ const t$5 = globalThis, i$7 = (t) => t, s$7 = t$5.trustedTypes, e$11 = s$7 ? s$7
 	_$litType$: t,
 	strings: i,
 	values: s
-}), b = x(1), E = Symbol.for("lit-noChange"), A = Symbol.for("lit-nothing"), C = /* @__PURE__ */ new WeakMap(), P = l$3.createTreeWalker(l$3, 129);
+}), b = x(1), w = x(2);
+x(3);
+const E = Symbol.for("lit-noChange"), A = Symbol.for("lit-nothing"), C = /* @__PURE__ */ new WeakMap(), P = l$3.createTreeWalker(l$3, 129);
 function V(t, i) {
 	if (!u$2(t) || !t.hasOwnProperty("raw")) throw Error("invalid template strings array");
 	return void 0 !== e$11 ? e$11.createHTML(i) : i;
@@ -532,7 +534,7 @@ const j$1 = {
 	B: I,
 	F: Z
 }, B = t$5.litHtmlPolyfillSupport;
-B?.(S, k), (t$5.litHtmlVersions ??= []).push("3.3.3");
+B?.(S, k), (t$5.litHtmlVersions ??= []).push("3.3.2");
 const D = (t, i, s) => {
 	const e = s?.renderBefore ?? i;
 	let h = e._$litPart$;
@@ -573,11 +575,6 @@ i$6._$litElement$ = !0, i$6["finalized"] = !0, s$6.litElementHydrateSupport?.({ 
 const o$11 = s$6.litElementPolyfillSupport;
 o$11?.({ LitElement: i$6 });
 (s$6.litElementVersions ??= []).push("4.2.2");
-/**
-* @license
-* Copyright 2022 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
 /**
 * @license
 * Copyright 2017 Google LLC
@@ -806,16 +803,6 @@ var i$3 = class extends s$2 {
 		this.host.dispatchEvent(new e$8(this.context, this.host));
 	}
 };
-/**
-* @license
-* Copyright 2021 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
-/**
-* @license
-* Copyright 2017 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
 /**
 * @license
 * Copyright 2022 Google LLC
@@ -2121,41 +2108,39 @@ function createComputed(computation) {
 const UNSET = /* @__PURE__ */ Symbol("UNSET");
 const COMPUTING = /* @__PURE__ */ Symbol("COMPUTING");
 const ERRORED = /* @__PURE__ */ Symbol("ERRORED");
-const COMPUTED_NODE = /* @__PURE__ */ (() => {
-	return {
-		...REACTIVE_NODE,
-		value: UNSET,
-		dirty: true,
-		error: null,
-		equal: defaultEquals,
-		producerMustRecompute(node) {
-			return node.value === UNSET || node.value === COMPUTING;
-		},
-		producerRecomputeValue(node) {
-			if (node.value === COMPUTING) throw new Error("Detected cycle in computations.");
-			const oldValue = node.value;
-			node.value = COMPUTING;
-			const prevConsumer = consumerBeforeComputation(node);
-			let newValue;
-			let wasEqual = false;
-			try {
-				newValue = node.computation.call(node.wrapper);
-				wasEqual = oldValue !== UNSET && oldValue !== ERRORED && node.equal.call(node.wrapper, oldValue, newValue);
-			} catch (err) {
-				newValue = ERRORED;
-				node.error = err;
-			} finally {
-				consumerAfterComputation(node, prevConsumer);
-			}
-			if (wasEqual) {
-				node.value = oldValue;
-				return;
-			}
-			node.value = newValue;
-			node.version++;
+const COMPUTED_NODE = {
+	...REACTIVE_NODE,
+	value: UNSET,
+	dirty: true,
+	error: null,
+	equal: defaultEquals,
+	producerMustRecompute(node) {
+		return node.value === UNSET || node.value === COMPUTING;
+	},
+	producerRecomputeValue(node) {
+		if (node.value === COMPUTING) throw new Error("Detected cycle in computations.");
+		const oldValue = node.value;
+		node.value = COMPUTING;
+		const prevConsumer = consumerBeforeComputation(node);
+		let newValue;
+		let wasEqual = false;
+		try {
+			newValue = node.computation.call(node.wrapper);
+			wasEqual = oldValue !== UNSET && oldValue !== ERRORED && node.equal.call(node.wrapper, oldValue, newValue);
+		} catch (err) {
+			newValue = ERRORED;
+			node.error = err;
+		} finally {
+			consumerAfterComputation(node, prevConsumer);
 		}
-	};
-})();
+		if (wasEqual) {
+			node.value = oldValue;
+			return;
+		}
+		node.value = newValue;
+		node.version++;
+	}
+};
 /**
 * @license
 * Copyright Google LLC All Rights Reserved.
@@ -2198,13 +2183,11 @@ function signalSetFn(node, newValue) {
 		signalValueChanged(node);
 	}
 }
-const SIGNAL_NODE = /* @__PURE__ */ (() => {
-	return {
-		...REACTIVE_NODE,
-		equal: defaultEquals,
-		value: void 0
-	};
-})();
+const SIGNAL_NODE = {
+	...REACTIVE_NODE,
+	equal: defaultEquals,
+	value: void 0
+};
 function signalValueChanged(node) {
 	node.version++;
 	producerIncrementEpoch();
@@ -2813,11 +2796,6 @@ function n$6(t) {
 * Copyright 2017 Google LLC
 * SPDX-License-Identifier: BSD-3-Clause
 */
-/**
-* @license
-* Copyright 2017 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
 const e$6 = (e, t, c) => (c.configurable = !0, c.enumerable = !0, Reflect.decorate && "object" != typeof t && Object.defineProperty(e, t, c), c);
 /**
 * @license
@@ -2848,26 +2826,6 @@ const e$6 = (e, t, c) => (c.configurable = !0, c.enumerable = !0, Reflect.decora
 		} });
 	};
 }
-/**
-* @license
-* Copyright 2017 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
-/**
-* @license
-* Copyright 2017 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
-/**
-* @license
-* Copyright 2021 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
-/**
-* @license
-* Copyright 2017 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
 /**
 * @license
 * Copyright 2023 Google LLC
@@ -3012,16 +2970,38 @@ const n$2 = new Signal.subtle.Watcher(async () => {
 		n$2.watch();
 	}));
 });
-/**
-* @license
-* Copyright 2023 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
-/**
-* @license
-* Copyright 2023 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
+var r$2 = class extends f {
+	_$S_() {
+		var i, t;
+		void 0 === this._$Sm && (this._$Sj = new Signal.Computed(() => {
+			var i;
+			const t = null === (i = this._$SW) || void 0 === i ? void 0 : i.get();
+			return this.setValue(t), t;
+		}), this._$Sm = null !== (t = null === (i = this._$Sk) || void 0 === i ? void 0 : i.h) && void 0 !== t ? t : n$2, this._$Sm.watch(this._$Sj), Signal.subtle.untrack(() => {
+			var i;
+			return null === (i = this._$Sj) || void 0 === i ? void 0 : i.get();
+		}));
+	}
+	_$Sp() {
+		void 0 !== this._$Sm && (this._$Sm.unwatch(this._$SW), this._$Sm = void 0);
+	}
+	render(i) {
+		return Signal.subtle.untrack(() => i.get());
+	}
+	update(i, [t]) {
+		var o, n;
+		return null !== (o = this._$Sk) && void 0 !== o || (this._$Sk = null === (n = i.options) || void 0 === n ? void 0 : n.host), t !== this._$SW && void 0 !== this._$SW && this._$Sp(), this._$SW = t, this._$S_(), Signal.subtle.untrack(() => this._$SW.get());
+	}
+	disconnected() {
+		this._$Sp();
+	}
+	reconnected() {
+		this._$S_();
+	}
+};
+const h$1 = e$10(r$2), m = (o) => (t, ...m) => o(t, ...m.map((o) => o instanceof Signal.State || o instanceof Signal.Computed ? h$1(o) : o));
+m(b);
+m(w);
 Signal.State;
 Signal.Computed;
 /**
@@ -3745,7 +3725,7 @@ let Root = (() => {
 * @license
 * Copyright 2018 Google LLC
 * SPDX-License-Identifier: BSD-3-Clause
-*/ const n$1 = "important", i = " !important", o$2 = e$10(class extends i$5 {
+*/ const n$1 = "important", i = " !" + n$1, o$2 = e$10(class extends i$5 {
 	constructor(t) {
 		if (super(t), t.type !== t$4.ATTRIBUTE || "style" !== t.name || t.strings?.length > 2) throw Error("The `styleMap` directive must be used in the `style` attribute and must be the only part in the attribute.");
 	}
@@ -5597,21 +5577,16 @@ var __runInitializers$8 = function(thisArg, initializers, value) {
 	};
 	return _classThis;
 })();
-/**
-* @license
-* Copyright 2020 Google LLC
-* SPDX-License-Identifier: BSD-3-Clause
-*/
 const o$1 = /* @__PURE__ */ new WeakMap(), n = e$10(class extends f {
 	render(i) {
 		return A;
 	}
 	update(i, [s]) {
 		const e = s !== this.G;
-		return e && this.rt(void 0), (e || this.lt !== this.ct) && (this.G = s, this.ht = i.options?.host, this.rt(this.ct = i.element)), A;
+		return e && void 0 !== this.G && this.rt(void 0), (e || this.lt !== this.ct) && (this.G = s, this.ht = i.options?.host, this.rt(this.ct = i.element)), A;
 	}
 	rt(t) {
-		if (void 0 !== this.G) if (this.isConnected || (t = void 0), "function" == typeof this.G) {
+		if (this.isConnected || (t = void 0), "function" == typeof this.G) {
 			const i = this.ht ?? globalThis;
 			let s = o$1.get(i);
 			void 0 === s && (s = /* @__PURE__ */ new WeakMap(), o$1.set(i, s)), void 0 !== s.get(this.G) && this.G.call(this.ht, void 0), s.set(this.G, t), void 0 !== t && this.G.call(this.ht, t);
@@ -7698,7 +7673,7 @@ function restoreDiff(arr) {
 	for (let i = 1; i < arr.length; i++) arr[i][0] += arr[i - 1][0] + 1;
 	return arr;
 }
-new Map(/* #__PURE__ */ restoreDiff([
+new Map(/* @__PURE__ */ restoreDiff([
 	[9, "&Tab;"],
 	[0, "&NewLine;"],
 	[22, "&excl;"],
@@ -8491,11 +8466,11 @@ new Map(/* #__PURE__ */ restoreDiff([
 	}],
 	[0, {
 		v: "&ll;",
-		n: new Map(/* #__PURE__ */ restoreDiff([[824, "&nLtv;"], [7577, "&nLt;"]]))
+		n: new Map(/* @__PURE__ */ restoreDiff([[824, "&nLtv;"], [7577, "&nLt;"]]))
 	}],
 	[0, {
 		v: "&gg;",
-		n: new Map(/* #__PURE__ */ restoreDiff([[824, "&nGtv;"], [7577, "&nGt;"]]))
+		n: new Map(/* @__PURE__ */ restoreDiff([[824, "&nGtv;"], [7577, "&nGt;"]]))
 	}],
 	[0, "&between;"],
 	[0, "&NotCupCap;"],
@@ -9257,7 +9232,7 @@ new Map(/* #__PURE__ */ restoreDiff([
 		n: 8421,
 		o: "&nparsl;"
 	}],
-	[44343, { n: new Map(/* #__PURE__ */ restoreDiff([
+	[44343, { n: new Map(/* @__PURE__ */ restoreDiff([
 		[56476, "&Ascr;"],
 		[1, "&Cscr;"],
 		[0, "&Dscr;"],
@@ -9398,7 +9373,7 @@ new Map(/* #__PURE__ */ restoreDiff([
 	[0, "&ffilig;"],
 	[0, "&ffllig;"]
 ]));
-new Map([
+const xmlCodeMap = new Map([
 	[34, "&quot;"],
 	[38, "&amp;"],
 	[39, "&apos;"],
@@ -9406,17 +9381,41 @@ new Map([
 	[62, "&gt;"]
 ]);
 String.prototype.codePointAt;
-new Map([
+/**
+* Creates a function that escapes all characters matched by the given regular
+* expression using the given map of characters to escape to their entities.
+*
+* @param regex Regular expression to match characters to escape.
+* @param map Map of characters to escape to their entities.
+*
+* @returns Function that escapes all characters matched by the given regular
+* expression using the given map of characters to escape to their entities.
+*/
+function getEscaper(regex, map) {
+	return function escape(data) {
+		let match;
+		let lastIdx = 0;
+		let result = "";
+		while (match = regex.exec(data)) {
+			if (lastIdx !== match.index) result += data.substring(lastIdx, match.index);
+			result += map.get(match[0].charCodeAt(0));
+			lastIdx = match.index + 1;
+		}
+		return result + data.substring(lastIdx);
+	};
+}
+getEscaper(/[&<>'"]/g, xmlCodeMap);
+getEscaper(/["&\u00A0]/g, new Map([
 	[34, "&quot;"],
 	[38, "&amp;"],
 	[160, "&nbsp;"]
-]);
-new Map([
+]));
+getEscaper(/[&<>\u00A0]/g, new Map([
 	[38, "&amp;"],
 	[60, "&lt;"],
 	[62, "&gt;"],
 	[160, "&nbsp;"]
-]);
+]));
 /** The level of entities to support. */
 var EntityLevel;
 (function(EntityLevel) {
@@ -11503,8 +11502,9 @@ var html_blocks_default = [
 	"track",
 	"ul"
 ];
-const HTML_TAG_RE = /* @__PURE__ */ new RegExp("^(?:<[A-Za-z][A-Za-z0-9\\-]*(?:\\s+[a-zA-Z_:][a-zA-Z0-9:._-]*(?:\\s*=\\s*(?:[^\"'=<>`\\x00-\\x20]+|'[^']*'|\"[^\"]*\"))?)*\\s*\\/?>|<\\/[A-Za-z][A-Za-z0-9\\-]*\\s*>|<!---?>|<!--(?:[^-]|-[^-]|--[^>])*-->|<[?][\\s\\S]*?[?]>|<![A-Za-z][^>]*>|<!\\[CDATA\\[[\\s\\S]*?\\]\\]>)");
-const HTML_OPEN_CLOSE_TAG_RE = /* @__PURE__ */ new RegExp("^(?:<[A-Za-z][A-Za-z0-9\\-]*(?:\\s+[a-zA-Z_:][a-zA-Z0-9:._-]*(?:\\s*=\\s*(?:[^\"'=<>`\\x00-\\x20]+|'[^']*'|\"[^\"]*\"))?)*\\s*\\/?>|<\\/[A-Za-z][A-Za-z0-9\\-]*\\s*>)");
+const open_tag = "<[A-Za-z][A-Za-z0-9\\-]*(?:\\s+[a-zA-Z_:][a-zA-Z0-9:._-]*(?:\\s*=\\s*(?:[^\"'=<>`\\x00-\\x20]+|'[^']*'|\"[^\"]*\"))?)*\\s*\\/?>";
+const HTML_TAG_RE = new RegExp("^(?:" + open_tag + "|<\\/[A-Za-z][A-Za-z0-9\\-]*\\s*>|<!---?>|<!--(?:[^-]|-[^-]|--[^>])*-->|<[?][\\s\\S]*?[?]>|<![A-Za-z][^>]*>|<!\\[CDATA\\[[\\s\\S]*?\\]\\]>)");
+const HTML_OPEN_CLOSE_TAG_RE = new RegExp("^(?:" + open_tag + "|<\\/[A-Za-z][A-Za-z0-9\\-]*\\s*>)");
 const HTML_SEQUENCES = [
 	[
 		/^<(script|pre|style|textarea)(?=(\s|>|$))/i,
@@ -12659,11 +12659,12 @@ function re_default(opts) {
 		re.src_Cc
 	].join("|");
 	re.src_ZCc = [re.src_Z, re.src_Cc].join("|");
-	re.src_pseudo_letter = "(?:(?![><｜]|" + re.src_ZPCc + ")" + re.src_Any + ")";
+	const text_separators = "[><｜]";
+	re.src_pseudo_letter = "(?:(?!" + text_separators + "|" + re.src_ZPCc + ")" + re.src_Any + ")";
 	re.src_ip4 = "(?:(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)";
 	re.src_auth = "(?:(?:(?!" + re.src_ZCc + "|[@/\\[\\]()]).)+@)?";
 	re.src_port = "(?::(?:6(?:[0-4]\\d{3}|5(?:[0-4]\\d{2}|5(?:[0-2]\\d|3[0-5])))|[1-5]?\\d{1,4}))?";
-	re.src_host_terminator = "(?=$|[><｜]|" + re.src_ZPCc + ")(?!" + (opts["---"] ? "-(?!--)|" : "-|") + "_|:\\d|\\.-|\\.(?!$|" + re.src_ZPCc + "))";
+	re.src_host_terminator = "(?=$|" + text_separators + "|" + re.src_ZPCc + ")(?!" + (opts["---"] ? "-(?!--)|" : "-|") + "_|:\\d|\\.-|\\.(?!$|" + re.src_ZPCc + "))";
 	re.src_path = "(?:[/?#](?:(?!" + re.src_ZCc + "|[><｜]|[()[\\]{}.,\"'?!\\-;]).|\\[(?:(?!" + re.src_ZCc + "|\\]).)*\\]|\\((?:(?!" + re.src_ZCc + "|[)]).)*\\)|\\{(?:(?!" + re.src_ZCc + "|[}]).)*\\}|\\\"(?:(?!" + re.src_ZCc + "|[\"]).)+\\\"|\\'(?:(?!" + re.src_ZCc + "|[']).)+\\'|\\'(?=" + re.src_pseudo_letter + "|[-])|\\.{2,}[a-zA-Z0-9%/&]|\\.(?!" + re.src_ZCc + "|[.]|$)|" + (opts["---"] ? "\\-(?!--(?:[^-]|$))(?:-*)|" : "\\-+|") + ",(?!" + re.src_ZCc + "|$)|;(?!" + re.src_ZCc + "|$)|\\!+(?!" + re.src_ZCc + "|[!]|$)|\\?(?!" + re.src_ZCc + "|[?]|$))+|\\/)?";
 	re.src_email_name = "[\\-;:&=\\+\\$,\\.a-zA-Z0-9_][\\-;:&=\\+\\$,\\\"\\.a-zA-Z0-9_]*";
 	re.src_xn = "xn--[a-z0-9\\-]{1,59}";
@@ -12678,7 +12679,7 @@ function re_default(opts) {
 	re.tpl_host_port_fuzzy_strict = re.tpl_host_fuzzy + re.src_port + re.src_host_terminator;
 	re.tpl_host_port_no_ip_fuzzy_strict = re.tpl_host_no_ip_fuzzy + re.src_port + re.src_host_terminator;
 	re.tpl_host_fuzzy_test = "localhost|www\\.|\\.\\d{1,3}\\.|(?:\\.(?:%TLDS%)(?:" + re.src_ZPCc + "|>|$))";
-	re.tpl_email_fuzzy = "(^|[><｜]|\"|\\(|" + re.src_ZCc + ")(" + re.src_email_name + "@" + re.tpl_host_fuzzy_strict + ")";
+	re.tpl_email_fuzzy = "(^|" + text_separators + "|\"|\\(|" + re.src_ZCc + ")(" + re.src_email_name + "@" + re.tpl_host_fuzzy_strict + ")";
 	re.tpl_link_fuzzy = "(^|(?![.:/\\-_@])(?:[$+<=>^`|｜]|" + re.src_ZPCc + "))((?![$+<=>^`|｜])" + re.tpl_host_port_fuzzy_strict + re.src_path + ")";
 	re.tpl_link_no_ip_fuzzy = "(^|(?![.:/\\-_@])(?:[$+<=>^`|｜]|" + re.src_ZPCc + "))((?![$+<=>^`|｜])" + re.tpl_host_port_no_ip_fuzzy_strict + re.src_path + ")";
 	return re;
@@ -13280,8 +13281,8 @@ const adapt = function(delta, numPoints, firstTime) {
 	let k = 0;
 	delta = firstTime ? floor(delta / damp) : delta >> 1;
 	delta += floor(delta / numPoints);
-	for (; delta > 455; k += base) delta = floor(delta / baseMinusTMin);
-	return floor(k + 36 * delta / (delta + skew));
+	for (; delta > baseMinusTMin * tMax >> 1; k += base) delta = floor(delta / baseMinusTMin);
+	return floor(k + (baseMinusTMin + 1) * delta / (delta + skew));
 };
 /**
 * Converts a Punycode string of ASCII-only symbols to a string of Unicode
@@ -13407,19 +13408,7 @@ const toASCII = function(input) {
 };
 /** Define the public API */
 const punycode = {
-	/**
-	* A string representing the current Punycode.js version number.
-	* @memberOf punycode
-	* @type String
-	*/
 	"version": "2.3.1",
-	/**
-	* An object of methods to convert from JavaScript's internal character
-	* representation (UCS-2) to Unicode code points, and back.
-	* @see <https://mathiasbynens.be/notes/javascript-encoding>
-	* @memberOf punycode
-	* @type Object
-	*/
 	"ucs2": {
 		"decode": ucs2decode,
 		"encode": ucs2encode

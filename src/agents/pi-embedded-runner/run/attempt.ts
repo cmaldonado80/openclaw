@@ -2255,6 +2255,7 @@ export async function runEmbeddedAttempt(
             runId: params.runId,
             sessionId: params.sessionId,
             phase: "prompt-complete",
+            compactionOccurredThisAttempt,
             warn: (message) => log.warn(message),
           });
         }

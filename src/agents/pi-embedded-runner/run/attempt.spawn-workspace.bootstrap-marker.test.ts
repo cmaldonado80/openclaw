@@ -42,7 +42,7 @@ describe("runEmbeddedAttempt bootstrap completion marker", () => {
     ).toBe(false);
   });
 
-  it("skips marker persistence for prompt errors and compaction-side outcomes", () => {
+  it("skips marker persistence for prompt errors and compaction timeouts", () => {
     expect(
       shouldPersistCompletedBootstrapTurn({
         shouldRecordCompletedBootstrapTurn: true,
@@ -62,7 +62,11 @@ describe("runEmbeddedAttempt bootstrap completion marker", () => {
         compactionOccurredThisAttempt: false,
       }),
     ).toBe(false);
+  });
 
+  it("persists marker through successful compaction (prevents workspace re-injection bloat)", () => {
+    // After successful compaction, continuation-skip must resume immediately.
+    // Without this marker, every post-compaction turn re-injects ~25k of workspace files.
     expect(
       shouldPersistCompletedBootstrapTurn({
         shouldRecordCompletedBootstrapTurn: true,
@@ -71,7 +75,7 @@ describe("runEmbeddedAttempt bootstrap completion marker", () => {
         timedOutDuringCompaction: false,
         compactionOccurredThisAttempt: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("persists the full-bootstrap marker when the prompt is submitted", () => {
@@ -100,6 +104,28 @@ describe("runEmbeddedAttempt bootstrap completion marker", () => {
         },
       ],
     ]);
+  });
+
+  it("includes postCompaction flag when compaction occurred during attempt", () => {
+    const calls: Array<[string, unknown]> = [];
+    appendFullBootstrapContextMarker({
+      sessionManager: {
+        appendCustomEntry: (customType, data) => {
+          calls.push([customType, data]);
+        },
+      },
+      runId: "run-2",
+      sessionId: "session-2",
+      phase: "prompt-complete",
+      compactionOccurredThisAttempt: true,
+      now: 456,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[1]).toMatchObject({
+      postCompaction: true,
+      phase: "prompt-complete",
+    });
   });
 
   it("reports marker persistence failures without throwing", () => {

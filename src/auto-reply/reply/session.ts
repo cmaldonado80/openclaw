@@ -85,6 +85,10 @@ function stripThreadIdFromOrigin(origin: SessionEntry["origin"]): SessionEntry["
   return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
+function isDashboardSessionKey(sessionKey: string): boolean {
+  return normalizeLowercaseStringOrEmpty(sessionKey).includes(":dashboard:");
+}
+
 function resolveExplicitSessionEndReason(
   matchedResetTriggerLower?: string,
 ): PluginHookSessionEndReason {
@@ -642,11 +646,13 @@ export async function initSessionState(params: {
   }
   const parentSessionKey = normalizeOptionalString(ctx.ParentSessionKey);
   const alreadyForked = sessionEntry.forkedFromParent === true;
+  const skipParentForkForDashboardSession = isDashboardSessionKey(sessionKey);
   if (
     parentSessionKey &&
     parentSessionKey !== sessionKey &&
     sessionStore[parentSessionKey] &&
-    !alreadyForked
+    !alreadyForked &&
+    !skipParentForkForDashboardSession
   ) {
     const parentTokens = sessionStore[parentSessionKey].totalTokens ?? 0;
     if (parentForkMaxTokens > 0 && parentTokens > parentForkMaxTokens) {

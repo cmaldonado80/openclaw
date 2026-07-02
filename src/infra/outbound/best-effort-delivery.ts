@@ -20,6 +20,21 @@ export function resolveExternalBestEffortDeliveryTarget(params: {
   threadId?: string | number | null;
 }): ExternalBestEffortDeliveryTarget {
   const normalizedChannel = normalizeMessageChannel(params.channel);
+
+  // Webchat (INTERNAL_MESSAGE_CHANNEL) is a session-only internal channel.
+  // Preserve the channel so announce delivery can route completions back to
+  // the webchat session via the lifecycle broadcast path, even though
+  // external delivery is not possible.
+  if (normalizedChannel === INTERNAL_MESSAGE_CHANNEL) {
+    return {
+      deliver: false,
+      channel: INTERNAL_MESSAGE_CHANNEL,
+      to: undefined,
+      accountId: undefined,
+      threadId: undefined,
+    };
+  }
+
   const channel =
     normalizedChannel && isDeliverableMessageChannel(normalizedChannel)
       ? normalizedChannel

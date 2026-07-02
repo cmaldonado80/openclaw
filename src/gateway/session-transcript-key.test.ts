@@ -128,6 +128,20 @@ describe("resolveSessionKeyForTranscriptFile", () => {
     expect(resolveSessionKeyForTranscriptFile("/tmp/shared.jsonl")).toBe("agent:main:acp:run-dup");
   });
 
+  it("fails closed when duplicate sessionIds share a transcript path without a clear owner", () => {
+    const store = {
+      "agent:main:first": { sessionId: "run-ambiguous", updatedAt: now },
+      "agent:other:second": { sessionId: "run-ambiguous", updatedAt: now },
+    } satisfies Record<string, SessionEntry>;
+    loadCombinedSessionStoreForGatewayMock.mockReturnValue({
+      storePath: "(multiple)",
+      store,
+    });
+    resolveSessionTranscriptCandidatesMock.mockReturnValue(["/tmp/shared.jsonl"]);
+
+    expect(resolveSessionKeyForTranscriptFile("/tmp/shared.jsonl")).toBeUndefined();
+  });
+
   it("prefers the freshest matching session when different sessionIds share a transcript path", () => {
     const store = {
       "agent:main:older": { sessionId: "sess-old", updatedAt: now },

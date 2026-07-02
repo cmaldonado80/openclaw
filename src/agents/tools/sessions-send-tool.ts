@@ -42,6 +42,35 @@ const SessionsSendToolSchema = Type.Object({
 
 type GatewayCaller = typeof callGateway;
 const SESSIONS_SEND_REPLY_HISTORY_LIMIT = 50;
+const SESSIONS_SEND_TERMINAL_MARKERS = [
+  "ASSISTANT_HANDOFF",
+  "WORKSPACE_HANDOFF",
+  "CONSOLIDATOR_HANDOFF",
+  "APPROVAL_REQUEST",
+  "BLOCKED_TASK",
+] as const;
+
+function buildSessionsSendRecovery(params: {
+  sessionKey: string;
+  runId: string;
+  status: "accepted" | "timeout";
+}) {
+  return {
+    status: params.status === "accepted" ? "pending_handoff" : "needs_recovery",
+    reason:
+      params.status === "accepted"
+        ? "Configured-agent sessions_send starts work asynchronously; accepted is not completion."
+        : "Configured-agent sessions_send timed out before a terminal handoff was observed.",
+    runId: params.runId,
+    sessionKey: params.sessionKey,
+    expectedTerminalMarkers: SESSIONS_SEND_TERMINAL_MARKERS,
+    nextChecks: [
+      `openclaw sessions --agent ${resolveAgentIdFromSessionKey(params.sessionKey) ?? "main"} --active 120 --json`,
+      `openclaw tasks show ${params.runId} --json`,
+      `openclaw tasks audit --json`,
+    ],
+  };
+}
 
 async function startAgentRun(params: {
   callGateway: GatewayCaller;
@@ -320,6 +349,11 @@ export function createSessionsSendTool(opts?: {
           status: "accepted",
           sessionKey: displayKey,
           delivery,
+          recovery: buildSessionsSendRecovery({
+            sessionKey: displayKey,
+            runId,
+            status: "accepted",
+          }),
         });
       }
 
@@ -348,6 +382,11 @@ export function createSessionsSendTool(opts?: {
           status: "timeout",
           error: result.error,
           sessionKey: displayKey,
+          recovery: buildSessionsSendRecovery({
+            sessionKey: displayKey,
+            runId,
+            status: "timeout",
+          }),
         });
       }
       if (result.status === "error") {

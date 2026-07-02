@@ -11,6 +11,7 @@ type DeliveryRuntimeMockOptions = {
   isEmbeddedPiRunActive: (sessionId: string) => boolean;
   queueEmbeddedPiMessage: (sessionId: string, text: string) => boolean;
   hasHooks?: () => boolean;
+  resolveBoundDestination?: (input: unknown) => unknown;
 };
 
 function resolveExternalBestEffortDeliveryTarget(params: {
@@ -56,7 +57,12 @@ export function createSubagentAnnounceDeliveryRuntimeMock(options: DeliveryRunti
     queueEmbeddedPiMessage: options.queueEmbeddedPiMessage,
     getGlobalHookRunner: () => ({ hasHooks: () => options.hasHooks?.() ?? false }),
     createBoundDeliveryRouter: () => ({
-      resolveDestination: () => ({ mode: "none" }),
+      resolveDestination: (input: unknown) =>
+        options.resolveBoundDestination?.(input) ?? {
+          binding: null,
+          mode: "fallback",
+          reason: "none",
+        },
     }),
     resolveConversationIdFromTargets: () => "",
     resolveExternalBestEffortDeliveryTarget,

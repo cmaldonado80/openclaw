@@ -1101,6 +1101,60 @@ describe("active-memory plugin", () => {
     expect(infoLines.some((line: string) => line.includes(" cached "))).toBe(false);
   });
 
+  it("invalidates cached recall results when the memory-lancedb store changes", async () => {
+    const memoryDbPath = path.join(stateDir, "memory-lancedb");
+    await fs.mkdir(memoryDbPath, { recursive: true });
+    await fs.writeFile(path.join(memoryDbPath, "table.manifest"), "before", "utf8");
+    configFile = {
+      plugins: {
+        slots: {
+          memory: "memory-lancedb",
+        },
+        entries: {
+          "active-memory": {
+            enabled: true,
+            config: {
+              agents: ["main"],
+            },
+          },
+          "memory-lancedb": {
+            enabled: true,
+            config: {
+              dbPath: memoryDbPath,
+            },
+          },
+        },
+      },
+    };
+    api.pluginConfig = {
+      agents: ["main"],
+      logging: true,
+    };
+    await plugin.register(api as unknown as OpenClawPluginApi);
+
+    const event = { prompt: "what wings should i order? memory freshness", messages: [] };
+    const ctx = {
+      agentId: "main",
+      trigger: "user",
+      sessionKey: "agent:main:memory-freshness",
+      messageProvider: "webchat",
+    };
+
+    await hooks.before_prompt_build(event, ctx);
+    await hooks.before_prompt_build(event, ctx);
+
+    expect(runEmbeddedPiAgent).toHaveBeenCalledTimes(1);
+
+    const changedPath = path.join(memoryDbPath, "table.manifest");
+    await fs.writeFile(changedPath, "after", "utf8");
+    const future = new Date(Date.now() + 5_000);
+    await fs.utimes(changedPath, future, future);
+
+    await hooks.before_prompt_build(event, ctx);
+
+    expect(runEmbeddedPiAgent).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores late subagent payloads once the active-memory timeout signal has fired", async () => {
     api.pluginConfig = {
       agents: ["main"],
@@ -1619,8 +1673,7 @@ describe("active-memory plugin", () => {
         messages: [
           {
             role: "user",
-            content:
-              "Active Memory: I really do want you to remember that I prefer aisle seats.",
+            content: "Active Memory: I really do want you to remember that I prefer aisle seats.",
           },
           {
             role: "user",

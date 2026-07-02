@@ -83,6 +83,7 @@ How the flow works:
 - The gateway uses that stored relay handle for `push.test`, background wakes, and wake nudges.
 - The gateway relay base URL must match the relay URL baked into the official/TestFlight iOS build.
 - If the app later connects to a different gateway or a build with a different relay base URL, it refreshes the relay registration instead of reusing the old binding.
+- Talk relay session creation is gateway-owned. Keep `talk.client.create` as a client-owned event; gateway relay flows create sessions with `talk.session.create`.
 
 What the gateway does **not** need for this path:
 

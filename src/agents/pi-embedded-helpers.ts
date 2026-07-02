@@ -3,6 +3,7 @@ export {
   DEFAULT_BOOTSTRAP_MAX_CHARS,
   DEFAULT_BOOTSTRAP_PROMPT_TRUNCATION_WARNING_MODE,
   DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS,
+  DEFAULT_MEMORY_BOOTSTRAP_MAX_CHARS,
   ensureSessionHeader,
   resolveBootstrapMaxChars,
   resolveBootstrapPromptTruncationWarningMode,
@@ -46,7 +47,10 @@ export {
 } from "./pi-embedded-helpers/errors.js";
 export type { ProviderRuntimeFailureKind } from "./pi-embedded-helpers/errors.js";
 export { sanitizeUserFacingText } from "./pi-embedded-helpers/sanitize-user-facing-text.js";
-export { isGoogleModelApi, sanitizeGoogleTurnOrdering } from "./pi-embedded-helpers/google.js";
+export {
+  isGoogleModelApi,
+  sanitizeGoogleTurnOrdering,
+} from "./pi-embedded-helpers/google.js";
 
 export {
   downgradeOpenAIFunctionCallReasoningPairs,
@@ -69,7 +73,13 @@ export {
   validateAnthropicTurns,
   validateGeminiTurns,
 } from "./pi-embedded-helpers/turns.js";
-export type { EmbeddedContextFile, FailoverReason } from "./pi-embedded-helpers/types.js";
+export type {
+  EmbeddedContextFile,
+  FailoverReason,
+} from "./pi-embedded-helpers/types.js";
 
 export type { ToolCallIdMode } from "./tool-call-id.js";
-export { isValidCloudCodeAssistToolId, sanitizeToolCallId } from "./tool-call-id.js";
+export {
+  isValidCloudCodeAssistToolId,
+  sanitizeToolCallId,
+} from "./tool-call-id.js";

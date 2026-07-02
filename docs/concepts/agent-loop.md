@@ -15,6 +15,11 @@ In OpenClaw, a loop is a single, serialized run per session that emits lifecycle
 as the model thinks, calls tools, and streams output. This doc explains how that authentic loop is
 wired end-to-end.
 
+For app-building and delegated work, the agent loop is the evidence path: it is what makes a run
+observable, streamable, cancellable, auditable, and persisted. A queued or accepted run is not proof
+that work finished; completion is proved by lifecycle end/error, final payload delivery, and the
+persisted session/tool evidence that the run produced.
+
 ## Entry points
 
 - Gateway RPC: `agent` and `agent.wait`.
@@ -41,6 +46,11 @@ wired end-to-end.
 5. `agent.wait` uses `waitForAgentRun`:
    - waits for **lifecycle end/error** for `runId`
    - returns `{ status: ok|error|timeout, startedAt, endedAt, error? }`
+
+> **Important:** `{ runId, acceptedAt }` only means the gateway accepted the run request.
+> It does not mean the model started, tools ran, a reply was sent, or session evidence was
+> persisted. Treat `accepted` as intake evidence. Treat lifecycle end/error plus final
+> payload/session evidence as completion evidence.
 
 ## Queueing + concurrency
 
@@ -104,6 +114,22 @@ Hook decision rules for outbound/tool guards:
 - `message_sending`: `{ cancel: false }` is a no-op and does not clear a prior cancel.
 
 See [Plugin hooks](/plugins/architecture#provider-runtime-hooks) for the hook API and registration details.
+
+## Debugging the loop
+
+When a run appears stuck or claims completion without visible output, check the loop in order:
+
+1. **Acceptance:** Did the caller receive `{ runId, acceptedAt }` from `agent`?
+2. **Queue start:** Did the run leave its session/global queue and emit lifecycle `start`?
+3. **Context build:** Was the workspace, skills snapshot, bootstrap context, and system prompt report prepared?
+4. **Model activity:** Did the assistant stream emit deltas, reasoning, or a model/provider error?
+5. **Tool activity:** Did tool start/update/end events appear on the `tool` stream, and were results persisted?
+6. **Lifecycle close:** Did the run emit lifecycle `end` or `error` for the same `runId`?
+7. **Delivery:** Did chat/channel handling emit a `final`, or did a messaging tool already send the visible reply?
+8. **Session evidence:** Does the session transcript contain the assistant/tool messages expected from the run?
+
+If `agent.wait` returns `timeout`, the wait expired; the agent run may still be active.
+Use it as wait-state evidence, not as cancellation or failure by itself.
 
 ## Streaming + partial replies
 

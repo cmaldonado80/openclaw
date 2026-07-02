@@ -207,11 +207,12 @@ export async function resolveSubagentCompletionOrigin(params: {
   const requesterConversation: ConversationRef | undefined =
     channel && conversationId ? { channel, accountId, conversationId } : undefined;
 
-  const route = createBoundDeliveryRouter().resolveDestination({
+  const router = createBoundDeliveryRouter();
+  const route = router.resolveDestination({
     eventKind: "task_completion",
     targetSessionKey: params.childSessionKey,
     requester: requesterConversation,
-    failClosed: false,
+    failClosed: true,
   });
   if (route.mode === "bound" && route.binding) {
     const boundTarget = resolveConversationDeliveryTarget({
@@ -231,6 +232,39 @@ export async function resolveSubagentCompletionOrigin(params: {
             : undefined),
       },
       requesterOrigin,
+    );
+  }
+
+  const requesterRoute = router.resolveDestination({
+    eventKind: "task_completion",
+    targetSessionKey: params.requesterSessionKey,
+    requester: requesterConversation,
+    failClosed: true,
+  });
+  if (requesterRoute.mode === "bound" && requesterRoute.binding) {
+    const boundTarget = resolveConversationDeliveryTarget({
+      channel: requesterRoute.binding.conversation.channel,
+      conversationId: requesterRoute.binding.conversation.conversationId,
+      parentConversationId: requesterRoute.binding.conversation.parentConversationId,
+    });
+    return mergeDeliveryContext(
+      {
+        channel: requesterRoute.binding.conversation.channel,
+        accountId: requesterRoute.binding.conversation.accountId,
+        to: boundTarget.to,
+        threadId:
+          boundTarget.threadId ??
+          (requesterOrigin?.threadId != null && requesterOrigin.threadId !== ""
+            ? String(requesterOrigin.threadId)
+            : undefined),
+      },
+      requesterOrigin,
+    );
+  }
+
+  if (channel && !to) {
+    throw new Error(
+      `task completion delivery target unresolved: child=${params.childSessionKey} requester=${params.requesterSessionKey} channel=${channel} childRoute=${route.reason} requesterRoute=${requesterRoute.reason}`,
     );
   }
 

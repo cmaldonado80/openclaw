@@ -74,6 +74,22 @@ function resolveTrustedToolsEffectiveContext(params: {
 
   const delivery = deliveryContextFromSession(loaded.entry);
   const resolvedModel = resolveSessionModelRef(loaded.cfg, loaded.entry, sessionAgentId);
+  const spawnedBy = normalizeOptionalString(loaded.entry.spawnedBy);
+  let parentEntry: typeof loaded.entry | undefined;
+  if (
+    spawnedBy &&
+    (!loaded.entry.groupId ||
+      !loaded.entry.groupChannel ||
+      !loaded.entry.space ||
+      !delivery?.channel ||
+      !loaded.entry.lastAccountId)
+  ) {
+    try {
+      parentEntry = loadSessionEntry(spawnedBy).entry;
+    } catch {
+      parentEntry = undefined;
+    }
+  }
   return {
     cfg: loaded.cfg,
     agentId: sessionAgentId,
@@ -84,8 +100,17 @@ function resolveTrustedToolsEffectiveContext(params: {
       delivery?.channel ??
       loaded.entry.lastChannel ??
       loaded.entry.channel ??
-      loaded.entry.origin?.provider,
-    accountId: delivery?.accountId ?? loaded.entry.lastAccountId ?? loaded.entry.origin?.accountId,
+      loaded.entry.origin?.provider ??
+      parentEntry?.lastChannel ??
+      parentEntry?.channel ??
+      parentEntry?.origin?.provider,
+    accountId:
+      delivery?.accountId ??
+      loaded.entry.lastAccountId ??
+      loaded.entry.origin?.accountId ??
+      parentEntry?.lastAccountId ??
+      parentEntry?.origin?.accountId,
+    spawnedBy,
     currentChannelId: delivery?.to,
     currentThreadTs:
       delivery?.threadId != null
@@ -95,9 +120,9 @@ function resolveTrustedToolsEffectiveContext(params: {
           : loaded.entry.origin?.threadId != null
             ? String(loaded.entry.origin.threadId)
             : undefined,
-    groupId: loaded.entry.groupId,
-    groupChannel: loaded.entry.groupChannel,
-    groupSpace: loaded.entry.space,
+    groupId: loaded.entry.groupId ?? parentEntry?.groupId,
+    groupChannel: loaded.entry.groupChannel ?? parentEntry?.groupChannel,
+    groupSpace: loaded.entry.space ?? parentEntry?.space,
     replyToMode: resolveReplyToMode(
       loaded.cfg,
       delivery?.channel ??
@@ -156,6 +181,7 @@ export const toolsEffectiveHandlers: GatewayRequestHandlers = {
         currentChannelId: trustedContext.currentChannelId,
         currentThreadTs: trustedContext.currentThreadTs,
         accountId: trustedContext.accountId,
+        spawnedBy: trustedContext.spawnedBy,
         groupId: trustedContext.groupId,
         groupChannel: trustedContext.groupChannel,
         groupSpace: trustedContext.groupSpace,

@@ -18,6 +18,12 @@ import {
   type CodexAppServerThreadBinding,
 } from "./session-binding.js";
 
+const PROJECTED_CONTEXT_HEADER = "OpenClaw assembled context for this turn:";
+const PROJECTED_CONTEXT_OPEN = "<conversation_context>";
+const PROJECTED_CONTEXT_CLOSE = "</conversation_context>";
+const PROJECTED_REQUEST_HEADER = "Current user request:";
+const PROJECTED_REPLAY_OMITTED = "[OpenClaw assembled context replay omitted]";
+
 export async function startOrResumeThread(params: {
   client: CodexAppServerClient;
   params: EmbeddedRunAttemptParams;
@@ -182,7 +188,7 @@ function buildDeveloperInstructions(params: EmbeddedRunAttemptParams): string {
 
 function buildUserInput(params: EmbeddedRunAttemptParams): CodexUserInput[] {
   return [
-    { type: "text", text: params.prompt },
+    { type: "text", text: stripNestedProjectedContextReplay(params.prompt) },
     ...(params.images ?? []).map(
       (image): CodexUserInput => ({
         type: "image",
@@ -190,6 +196,51 @@ function buildUserInput(params: EmbeddedRunAttemptParams): CodexUserInput[] {
       }),
     ),
   ];
+}
+
+function stripNestedProjectedContextReplay(text: string): string {
+  const firstHeader = text.indexOf(PROJECTED_CONTEXT_HEADER);
+  if (firstHeader < 0) {
+    return text;
+  }
+
+  let nextHeader = text.indexOf(PROJECTED_CONTEXT_HEADER, firstHeader + PROJECTED_CONTEXT_HEADER.length);
+  if (nextHeader < 0) {
+    return text;
+  }
+
+  let cleaned = text;
+  while (nextHeader >= 0) {
+    const replacementEnd = findProjectedReplayEnd(cleaned, nextHeader);
+    cleaned =
+      cleaned.slice(0, nextHeader).trimEnd() +
+      `\n\n${PROJECTED_REPLAY_OMITTED}\n\n` +
+      cleaned.slice(replacementEnd).trimStart();
+    nextHeader = cleaned.indexOf(PROJECTED_CONTEXT_HEADER, nextHeader + PROJECTED_REPLAY_OMITTED.length);
+  }
+  return cleaned;
+}
+
+function findProjectedReplayEnd(text: string, headerIndex: number): number {
+  const closeIndex = text.indexOf(PROJECTED_CONTEXT_CLOSE, headerIndex);
+  if (closeIndex < 0) {
+    return text.length;
+  }
+
+  const afterClose = closeIndex + PROJECTED_CONTEXT_CLOSE.length;
+  const requestIndex = text.indexOf(PROJECTED_REQUEST_HEADER, afterClose);
+  if (requestIndex < 0) {
+    return afterClose;
+  }
+
+  const requestTextStart = requestIndex + PROJECTED_REQUEST_HEADER.length;
+  const nextNestedHeader = text.indexOf(PROJECTED_CONTEXT_HEADER, requestTextStart);
+  const nextContextOpen = text.indexOf(PROJECTED_CONTEXT_OPEN, requestTextStart);
+  if (nextNestedHeader >= 0 && (nextContextOpen < 0 || nextNestedHeader < nextContextOpen)) {
+    return nextNestedHeader;
+  }
+
+  return requestTextStart;
 }
 
 function normalizeModelProvider(provider: string): string {

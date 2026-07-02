@@ -1,4 +1,4 @@
-import { AcpRuntimeError, withAcpRuntimeErrorBoundary } from "../runtime/errors.js";
+import { withAcpRuntimeErrorBoundary } from "../runtime/errors.js";
 import type { AcpRuntime, AcpRuntimeCapabilities, AcpRuntimeHandle } from "../runtime/types.js";
 import type { SessionAcpMeta } from "./manager.types.js";
 import { createUnsupportedControlError } from "./manager.utils.js";
@@ -61,12 +61,7 @@ export async function applyManagerRuntimeControls(params: {
   });
   const backend = params.handle.backend || params.meta.backend;
   const runtimeMode = normalizeText(options.runtimeMode);
-  const configOptions = buildRuntimeConfigOptionPairs(options);
-  const advertisedKeys = new Set(
-    (capabilities.configOptionKeys ?? [])
-      .map((entry) => normalizeText(entry))
-      .filter(Boolean) as string[],
-  );
+  const configOptions = buildRuntimeConfigOptionPairs(options, capabilities.configOptionKeys);
 
   await withAcpRuntimeErrorBoundary({
     run: async () => {
@@ -94,12 +89,6 @@ export async function applyManagerRuntimeControls(params: {
           });
         }
         for (const [key, value] of configOptions) {
-          if (advertisedKeys.size > 0 && !advertisedKeys.has(key)) {
-            throw new AcpRuntimeError(
-              "ACP_BACKEND_UNSUPPORTED_CONTROL",
-              `ACP backend "${backend}" does not accept config key "${key}".`,
-            );
-          }
           await params.runtime.setConfigOption({
             handle: params.handle,
             key,

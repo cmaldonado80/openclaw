@@ -29,6 +29,10 @@ function installTmpDirHarness(params: { prefix: string }) {
   };
 }
 
+function materializeTool(toolOrFactory: any, ctx: { agentId?: string } = {}) {
+  return typeof toolOrFactory === "function" ? toolOrFactory(ctx) : toolOrFactory;
+}
+
 // Live tests that require OpenAI API key and actually use LanceDB
 describeLive("memory plugin live tests", () => {
   const { getDbPath } = installTmpDirHarness({ prefix: "openclaw-memory-live-" });
@@ -84,7 +88,7 @@ describeLive("memory plugin live tests", () => {
     };
 
     // Register plugin
-    memoryPlugin.register(mockApi as any);
+    await memoryPlugin.register(mockApi as any);
 
     // Check registration
     expect(registeredTools.length).toBe(3);
@@ -95,9 +99,19 @@ describeLive("memory plugin live tests", () => {
     expect(registeredServices.length).toBe(1);
 
     // Get tool functions
-    const storeTool = registeredTools.find((t) => t.opts?.name === "memory_store")?.tool;
-    const recallTool = registeredTools.find((t) => t.opts?.name === "memory_recall")?.tool;
-    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
+    const toolCtx = { agentId: "memory-live-agent" };
+    const storeTool = materializeTool(
+      registeredTools.find((t) => t.opts?.name === "memory_store")?.tool,
+      toolCtx,
+    );
+    const recallTool = materializeTool(
+      registeredTools.find((t) => t.opts?.name === "memory_recall")?.tool,
+      toolCtx,
+    );
+    const forgetTool = materializeTool(
+      registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool,
+      toolCtx,
+    );
 
     // Test store
     const storeResult = await storeTool.execute("test-call-1", {

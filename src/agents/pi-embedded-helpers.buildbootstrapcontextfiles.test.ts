@@ -8,6 +8,7 @@ import {
   DEFAULT_BOOTSTRAP_MAX_CHARS,
   DEFAULT_BOOTSTRAP_PROMPT_TRUNCATION_WARNING_MODE,
   DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS,
+  DEFAULT_MEMORY_BOOTSTRAP_MAX_CHARS,
   ensureSessionHeader,
   resolveBootstrapMaxChars,
   resolveBootstrapPromptTruncationWarningMode,
@@ -16,7 +17,9 @@ import {
 import type { WorkspaceBootstrapFile } from "./workspace.js";
 import { DEFAULT_AGENTS_FILENAME } from "./workspace.js";
 
-const makeFile = (overrides: Partial<WorkspaceBootstrapFile>): WorkspaceBootstrapFile => ({
+const makeFile = (
+  overrides: Partial<WorkspaceBootstrapFile>,
+): WorkspaceBootstrapFile => ({
   name: DEFAULT_AGENTS_FILENAME,
   path: "/tmp/AGENTS.md",
   content: "",
@@ -26,18 +29,34 @@ const makeFile = (overrides: Partial<WorkspaceBootstrapFile>): WorkspaceBootstra
 
 const createLargeBootstrapFiles = (): WorkspaceBootstrapFile[] => [
   makeFile({ name: "AGENTS.md", content: "a".repeat(10_000) }),
-  makeFile({ name: "SOUL.md", path: "/tmp/SOUL.md", content: "b".repeat(10_000) }),
-  makeFile({ name: "USER.md", path: "/tmp/USER.md", content: "c".repeat(10_000) }),
+  makeFile({
+    name: "SOUL.md",
+    path: "/tmp/SOUL.md",
+    content: "b".repeat(10_000),
+  }),
+  makeFile({
+    name: "USER.md",
+    path: "/tmp/USER.md",
+    content: "c".repeat(10_000),
+  }),
 ];
 
 describe("ensureSessionHeader", () => {
   it("creates transcript files with restrictive permissions", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-header-"));
+    const tempDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "openclaw-session-header-"),
+    );
     try {
       const sessionFile = path.join(tempDir, "nested", "session.jsonl");
-      await ensureSessionHeader({ sessionFile, sessionId: "session-1", cwd: tempDir });
+      await ensureSessionHeader({
+        sessionFile,
+        sessionId: "session-1",
+        cwd: tempDir,
+      });
 
-      expect((await fs.stat(path.dirname(sessionFile))).mode & 0o777).toBe(0o700);
+      expect((await fs.stat(path.dirname(sessionFile))).mode & 0o777).toBe(
+        0o700,
+      );
       expect((await fs.stat(sessionFile)).mode & 0o777).toBe(0o600);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -71,7 +90,9 @@ describe("buildBootstrapContextFiles", () => {
       maxChars,
       warn: (message) => warnings.push(message),
     });
-    expect(result?.content).toContain("[...truncated, read TOOLS.md for full content...]");
+    expect(result?.content).toContain(
+      "[...truncated, read TOOLS.md for full content...]",
+    );
     expect(result?.content.length).toBeLessThan(long.length);
     expect(result?.content.startsWith(long.slice(0, 120))).toBe(true);
     expect(result?.content.endsWith(long.slice(-expectedTailChars))).toBe(true);
@@ -84,13 +105,65 @@ describe("buildBootstrapContextFiles", () => {
     const files = [makeFile({ content: long })];
     const [result] = buildBootstrapContextFiles(files);
     expect(result?.content).toBe(long);
-    expect(result?.content).not.toContain("[...truncated, read AGENTS.md for full content...]");
+    expect(result?.content).not.toContain(
+      "[...truncated, read AGENTS.md for full content...]",
+    );
+  });
+
+  it("omits promoted short-term memory details from MEMORY.md bootstrap context", () => {
+    const files = [
+      makeFile({
+        name: "MEMORY.md",
+        path: "/tmp/MEMORY.md",
+        content: [
+          "# Memory",
+          "",
+          "Durable routing truth.",
+          "",
+          "## Promoted From Short-Term Memory (2026-06-16)",
+          "",
+          "<!-- openclaw-memory-promotion:memory:memory/2026-06-09-audit-evidence.md:48:50 -->",
+          "- Noisy historical promotion that should stay queryable through memory tools.",
+        ].join("\n"),
+      }),
+    ];
+
+    const [result] = buildBootstrapContextFiles(files);
+
+    expect(result?.content).toContain("Durable routing truth.");
+    expect(result?.content).toContain("## Promoted From Short-Term Memory");
+    expect(result?.content).toContain(
+      "Promoted short-term memory details omitted",
+    );
+    expect(result?.content).not.toContain("openclaw-memory-promotion");
+    expect(result?.content).not.toContain("Noisy historical promotion");
+  });
+
+  it("uses a tighter bootstrap budget for MEMORY.md than ordinary bootstrap files", () => {
+    const memoryContent = `# Memory\n\n${"m".repeat(DEFAULT_MEMORY_BOOTSTRAP_MAX_CHARS + 2_000)}`;
+    const files = [
+      makeFile({
+        name: "MEMORY.md",
+        path: "/tmp/MEMORY.md",
+        content: memoryContent,
+      }),
+    ];
+
+    const [result] = buildBootstrapContextFiles(files);
+
+    expect(result?.content.length).toBeLessThan(memoryContent.length);
+    expect(result?.content).toContain(
+      "[...truncated, read MEMORY.md for full content...]",
+    );
   });
 
   it("keeps total injected bootstrap characters under the new default total cap", () => {
     const files = createLargeBootstrapFiles();
     const result = buildBootstrapContextFiles(files);
-    const totalChars = result.reduce((sum, entry) => sum + entry.content.length, 0);
+    const totalChars = result.reduce(
+      (sum, entry) => sum + entry.content.length,
+      0,
+    );
     expect(totalChars).toBeLessThanOrEqual(DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS);
     expect(result).toHaveLength(3);
     expect(result[2]?.content).toBe("c".repeat(10_000));
@@ -99,22 +172,34 @@ describe("buildBootstrapContextFiles", () => {
   it("caps total injected bootstrap characters when totalMaxChars is configured", () => {
     const files = createLargeBootstrapFiles();
     const result = buildBootstrapContextFiles(files, { totalMaxChars: 24_000 });
-    const totalChars = result.reduce((sum, entry) => sum + entry.content.length, 0);
+    const totalChars = result.reduce(
+      (sum, entry) => sum + entry.content.length,
+      0,
+    );
     expect(totalChars).toBeLessThanOrEqual(24_000);
     expect(result).toHaveLength(3);
-    expect(result[2]?.content).toContain("[...truncated, read USER.md for full content...]");
+    expect(result[2]?.content).toContain(
+      "[...truncated, read USER.md for full content...]",
+    );
   });
 
   it("enforces strict total cap even when truncation markers are present", () => {
     const files = [
       makeFile({ name: "AGENTS.md", content: "a".repeat(1_000) }),
-      makeFile({ name: "SOUL.md", path: "/tmp/SOUL.md", content: "b".repeat(1_000) }),
+      makeFile({
+        name: "SOUL.md",
+        path: "/tmp/SOUL.md",
+        content: "b".repeat(1_000),
+      }),
     ];
     const result = buildBootstrapContextFiles(files, {
       maxChars: 100,
       totalMaxChars: 150,
     });
-    const totalChars = result.reduce((sum, entry) => sum + entry.content.length, 0);
+    const totalChars = result.reduce(
+      (sum, entry) => sum + entry.content.length,
+      0,
+    );
     expect(totalChars).toBeLessThanOrEqual(150);
   });
 
@@ -158,7 +243,12 @@ describe("buildBootstrapContextFiles", () => {
     const good = makeFile({ content: "hello" });
     const warnings: string[] = [];
     const result = buildBootstrapContextFiles(
-      [malformedMissingPath, malformedNonStringPath, malformedWhitespacePath, good],
+      [
+        malformedMissingPath,
+        malformedNonStringPath,
+        malformedWhitespacePath,
+        good,
+      ],
       {
         warn: (msg) => warnings.push(msg),
       },
@@ -166,9 +256,11 @@ describe("buildBootstrapContextFiles", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.path).toBe("/tmp/AGENTS.md");
     expect(warnings).toHaveLength(3);
-    expect(warnings.every((warning) => warning.includes('missing or invalid "path" field'))).toBe(
-      true,
-    );
+    expect(
+      warnings.every((warning) =>
+        warning.includes('missing or invalid "path" field'),
+      ),
+    ).toBe(true);
   });
 });
 

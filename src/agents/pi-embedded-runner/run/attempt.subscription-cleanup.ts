@@ -6,6 +6,7 @@ type IdleAwareAgent = {
 
 type ToolResultFlushManager = {
   flushPendingToolResults?: (() => void) | undefined;
+  flushPendingToolResultsForced?: (() => void) | undefined;
   clearPendingToolResults?: (() => void) | undefined;
 };
 export function buildEmbeddedSubscriptionParams(

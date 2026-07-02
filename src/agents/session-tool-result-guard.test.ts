@@ -503,6 +503,7 @@ describe("installSessionToolResultGuard", () => {
     const roles = messages.map((m) => m.role);
     expect(roles).toEqual(["assistant", "user"]);
     expect(roles).not.toContain("toolResult");
+    expect((messages[0] as { content?: unknown })?.content).toEqual([]);
   });
 
   it("does NOT create synthetic toolResult for errored assistant messages with toolCalls", () => {
@@ -528,5 +529,6 @@ describe("installSessionToolResultGuard", () => {
       (m) => (m as { toolCallId?: string }).toolCallId === "call_error",
     );
     expect(syntheticForError).toHaveLength(0);
+    expect((messages[0] as { content?: unknown })?.content).toEqual([]);
   });
 });

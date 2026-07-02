@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
+import { FULL_BOOTSTRAP_COMPLETED_CUSTOM_TYPE } from "../../bootstrap-files.js";
 import { normalizeStructuredPromptSection } from "../../prompt-cache-stability.js";
 
 export const ATTEMPT_CACHE_TTL_CUSTOM_TYPE = "openclaw.cache-ttl";
@@ -99,8 +100,40 @@ export function shouldPersistCompletedBootstrapTurn(params: {
   if (!params.shouldRecordCompletedBootstrapTurn || params.promptError || params.aborted) {
     return false;
   }
-  if (params.timedOutDuringCompaction || params.compactionOccurredThisAttempt) {
+  // Compaction timeout means the turn was unstable — don't write the marker.
+  // However, successful compaction during a turn is exactly when we MOST need
+  // the marker: without it, every subsequent turn re-injects the full workspace
+  // context (~25k chars) because hasCompletedBootstrapTurn() sees compaction
+  // after the latest marker and returns false. Writing the marker after a
+  // successful compaction allows continuation-skip to resume immediately.
+  if (params.timedOutDuringCompaction) {
     return false;
   }
   return true;
+}
+
+export function appendFullBootstrapContextMarker(params: {
+  sessionManager: {
+    appendCustomEntry?: (customType: string, data: unknown) => void;
+  };
+  runId: string;
+  sessionId: string;
+  phase: "prompt-start" | "prompt-complete";
+  compactionOccurredThisAttempt?: boolean;
+  now?: number;
+  warn?: (message: string) => void;
+}): boolean {
+  try {
+    params.sessionManager.appendCustomEntry?.(FULL_BOOTSTRAP_COMPLETED_CUSTOM_TYPE, {
+      timestamp: params.now ?? Date.now(),
+      runId: params.runId,
+      sessionId: params.sessionId,
+      phase: params.phase,
+      ...(params.compactionOccurredThisAttempt ? { postCompaction: true } : {}),
+    });
+    return true;
+  } catch (entryErr) {
+    params.warn?.(`failed to persist bootstrap context marker: ${String(entryErr)}`);
+    return false;
+  }
 }

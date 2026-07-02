@@ -20,14 +20,72 @@ import { logWarn } from "../logger.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
 import { isSubagentSessionKey } from "../routing/session-key.js";
 import { DEFAULT_GATEWAY_HTTP_TOOL_DENY } from "../security/dangerous-tools.js";
+import { normalizeOptionalString } from "../shared/string-coerce.js";
+import { loadSessionEntry } from "./session-utils.js";
 
 export type GatewayScopedToolSurface = "http" | "loopback";
+
+type GatewayScopedToolLineage = {
+  spawnedBy?: string;
+  messageProvider?: string;
+  accountId?: string;
+  groupId?: string;
+  groupChannel?: string;
+  groupSpace?: string;
+};
+
+function resolveStoredSessionLineage(sessionKey: string): GatewayScopedToolLineage {
+  if (!isSubagentSessionKey(sessionKey)) {
+    return {};
+  }
+  try {
+    const loaded = loadSessionEntry(sessionKey);
+    const entry = loaded.entry;
+    const spawnedBy = normalizeOptionalString(entry?.spawnedBy ?? entry?.parentSessionKey);
+    let parentEntry: typeof entry | undefined;
+    if (spawnedBy) {
+      try {
+        parentEntry = loadSessionEntry(spawnedBy).entry;
+      } catch {
+        parentEntry = undefined;
+      }
+    }
+    return {
+      spawnedBy,
+      messageProvider:
+        normalizeOptionalString(entry?.lastChannel) ??
+        normalizeOptionalString(entry?.channel) ??
+        normalizeOptionalString(entry?.origin?.provider) ??
+        normalizeOptionalString(parentEntry?.lastChannel) ??
+        normalizeOptionalString(parentEntry?.channel) ??
+        normalizeOptionalString(parentEntry?.origin?.provider),
+      accountId:
+        normalizeOptionalString(entry?.lastAccountId) ??
+        normalizeOptionalString(entry?.origin?.accountId) ??
+        normalizeOptionalString(parentEntry?.lastAccountId) ??
+        normalizeOptionalString(parentEntry?.origin?.accountId),
+      groupId:
+        normalizeOptionalString(entry?.groupId) ?? normalizeOptionalString(parentEntry?.groupId),
+      groupChannel:
+        normalizeOptionalString(entry?.groupChannel) ??
+        normalizeOptionalString(parentEntry?.groupChannel),
+      groupSpace:
+        normalizeOptionalString(entry?.space) ?? normalizeOptionalString(parentEntry?.space),
+    };
+  } catch {
+    return {};
+  }
+}
 
 export function resolveGatewayScopedTools(params: {
   cfg: OpenClawConfig;
   sessionKey: string;
   messageProvider?: string;
   accountId?: string;
+  spawnedBy?: string | null;
+  groupId?: string | null;
+  groupChannel?: string | null;
+  groupSpace?: string | null;
   agentTo?: string;
   agentThreadId?: string;
   allowGatewaySubagentBinding?: boolean;
@@ -55,11 +113,18 @@ export function resolveGatewayScopedTools(params: {
     providerProfilePolicy,
     providerProfileAlsoAllow,
   );
+  const storedLineage = resolveStoredSessionLineage(params.sessionKey);
+  const messageProvider = params.messageProvider ?? storedLineage.messageProvider;
+  const accountId = params.accountId ?? storedLineage.accountId;
   const groupPolicy = resolveGroupToolPolicy({
     config: params.cfg,
     sessionKey: params.sessionKey,
-    messageProvider: params.messageProvider,
-    accountId: params.accountId ?? null,
+    spawnedBy: params.spawnedBy ?? storedLineage.spawnedBy,
+    messageProvider,
+    groupId: params.groupId ?? storedLineage.groupId,
+    groupChannel: params.groupChannel ?? storedLineage.groupChannel,
+    groupSpace: params.groupSpace ?? storedLineage.groupSpace,
+    accountId: accountId ?? null,
   });
   const subagentPolicy = isSubagentSessionKey(params.sessionKey)
     ? resolveSubagentToolPolicy(params.cfg)
@@ -71,8 +136,8 @@ export function resolveGatewayScopedTools(params: {
 
   const allTools = createOpenClawTools({
     agentSessionKey: params.sessionKey,
-    agentChannel: params.messageProvider ?? undefined,
-    agentAccountId: params.accountId,
+    agentChannel: messageProvider ?? undefined,
+    agentAccountId: accountId,
     agentTo: params.agentTo,
     agentThreadId: params.agentThreadId,
     allowGatewaySubagentBinding: params.allowGatewaySubagentBinding,

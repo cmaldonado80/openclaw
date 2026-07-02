@@ -90,4 +90,43 @@ describe("subagents status", () => {
       expect(text).not.toContain(blocked);
     }
   });
+
+  it("does not count ended parent runs as active when stale descendants remain pending", () => {
+    const now = Date.now();
+    addSubagentRunForTests({
+      runId: "run-parent-ended",
+      childSessionKey: "agent:main:subagent:parent-ended",
+      requesterSessionKey: "agent:main:main",
+      requesterDisplayKey: "main",
+      task: "parent ended",
+      cleanup: "keep",
+      createdAt: now - 120_000,
+      startedAt: now - 120_000,
+      endedAt: now - 60_000,
+      outcome: { status: "ok" },
+    });
+    addSubagentRunForTests({
+      runId: "run-child-stale",
+      childSessionKey: "agent:main:subagent:parent-ended:subagent:child",
+      requesterSessionKey: "agent:main:subagent:parent-ended",
+      requesterDisplayKey: "subagent:parent-ended",
+      task: "stale child",
+      cleanup: "keep",
+      createdAt: now - 30_000,
+      startedAt: now - 30_000,
+    });
+    const runsSnapshot = getSubagentRunsSnapshotForRead(subagentRuns);
+    const runs = listRunsForControllerFromRuns(runsSnapshot, "agent:main:main");
+    const text =
+      buildSubagentsStatusLine({
+        runs,
+        verboseEnabled: true,
+        pendingDescendantsForRun: (entry) =>
+          countPendingDescendantRunsFromRuns(runsSnapshot, entry.childSessionKey),
+      }) ?? "";
+
+    expect(text).toContain("🤖 Subagents: 0 active");
+    expect(text).toContain("· 1 done");
+    expect(text).not.toContain("1 active");
+  });
 });

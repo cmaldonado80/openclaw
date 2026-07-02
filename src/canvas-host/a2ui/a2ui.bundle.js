@@ -7660,6 +7660,15 @@ getDecoder(decode_data_xml_default);
 function decodeHTML(str, mode = DecodingMode.Legacy) {
 	return htmlDecoder(str, mode);
 }
+/**
+* Decodes an HTML string, requiring all entities to be terminated by a semicolon.
+*
+* @param str The string to decode.
+* @returns The decoded string.
+*/
+function decodeHTMLStrict(str) {
+	return htmlDecoder(str, DecodingMode.Strict);
+}
 function restoreDiff(arr) {
 	for (let i = 1; i < arr.length; i++) arr[i][0] += arr[i - 1][0] + 1;
 	return arr;
@@ -9446,6 +9455,7 @@ var EncodingMode;
 })(EncodingMode || (EncodingMode = {}));
 var utils_exports = /* @__PURE__ */ __exportAll({
 	arrayReplaceAt: () => arrayReplaceAt,
+	asciiTrim: () => asciiTrim,
 	assign: () => assign$1,
 	escapeHtml: () => escapeHtml,
 	escapeRE: () => escapeRE$1,
@@ -9453,6 +9463,7 @@ var utils_exports = /* @__PURE__ */ __exportAll({
 	has: () => has,
 	isMdAsciiPunct: () => isMdAsciiPunct,
 	isPunctChar: () => isPunctChar,
+	isPunctCharCode: () => isPunctCharCode,
 	isSpace: () => isSpace,
 	isString: () => isString$1,
 	isValidEntityCode: () => isValidEntityCode,
@@ -9575,6 +9586,9 @@ function isWhiteSpace(code) {
 function isPunctChar(ch) {
 	return regex_default$2.test(ch) || regex_default$1.test(ch);
 }
+function isPunctCharCode(code) {
+	return isPunctChar(fromCodePoint(code));
+}
 function isMdAsciiPunct(ch) {
 	switch (ch) {
 		case 33:
@@ -9614,8 +9628,20 @@ function isMdAsciiPunct(ch) {
 }
 function normalizeReference(str) {
 	str = str.trim().replace(/\s+/g, " ");
-	if ("ẞ".toLowerCase() === "Ṿ") str = str.replace(/ẞ/g, "ß");
+	if ("ẞ".toLowerCase() === "Ṿ")
+ /* c8 ignore next 2 */
+	str = str.replace(/ẞ/g, "ß");
 	return str.toLowerCase().toUpperCase();
+}
+function isAsciiTrimmable(c) {
+	return c === 32 || c === 9 || c === 10 || c === 13;
+}
+function asciiTrim(str) {
+	let start = 0;
+	for (; start < str.length; start++) if (!isAsciiTrimmable(str.charCodeAt(start))) break;
+	let end = str.length - 1;
+	for (; end >= start; end--) if (!isAsciiTrimmable(str.charCodeAt(end))) break;
+	return str.slice(start, end + 1);
 }
 const lib = {
 	mdurl: mdurl_exports,
@@ -10531,21 +10557,37 @@ function replace(state) {
 const QUOTE_TEST_RE = /['"]/;
 const QUOTE_RE = /['"]/g;
 const APOSTROPHE = "’";
-function replaceAt(str, index, ch) {
-	return str.slice(0, index) + ch + str.slice(index + 1);
+function addReplacement(replacements, tokenIdx, pos, ch) {
+	if (!replacements[tokenIdx]) replacements[tokenIdx] = [];
+	replacements[tokenIdx].push({
+		pos,
+		ch
+	});
+}
+function applyReplacements(str, replacements) {
+	let result = "";
+	let lastPos = 0;
+	replacements.sort((a, b) => a.pos - b.pos);
+	for (let i = 0; i < replacements.length; i++) {
+		const replacement = replacements[i];
+		result += str.slice(lastPos, replacement.pos) + replacement.ch;
+		lastPos = replacement.pos + 1;
+	}
+	return result + str.slice(lastPos);
 }
 function process_inlines(tokens, state) {
 	let j;
 	const stack = [];
+	const replacements = {};
 	for (let i = 0; i < tokens.length; i++) {
 		const token = tokens[i];
 		const thisLevel = tokens[i].level;
 		for (j = stack.length - 1; j >= 0; j--) if (stack[j].level <= thisLevel) break;
 		stack.length = j + 1;
 		if (token.type !== "text") continue;
-		let text = token.content;
+		const text = token.content;
 		let pos = 0;
-		let max = text.length;
+		const max = text.length;
 		OUTER: while (pos < max) {
 			QUOTE_RE.lastIndex = pos;
 			const t = QUOTE_RE.exec(text);
@@ -10570,8 +10612,8 @@ function process_inlines(tokens, state) {
 				nextChar = tokens[j].content.charCodeAt(0);
 				break;
 			}
-			const isLastPunctChar = isMdAsciiPunct(lastChar) || isPunctChar(String.fromCharCode(lastChar));
-			const isNextPunctChar = isMdAsciiPunct(nextChar) || isPunctChar(String.fromCharCode(nextChar));
+			const isLastPunctChar = isMdAsciiPunct(lastChar) || isPunctCharCode(lastChar);
+			const isNextPunctChar = isMdAsciiPunct(nextChar) || isPunctCharCode(nextChar);
 			const isLastWhiteSpace = isWhiteSpace(lastChar);
 			const isNextWhiteSpace = isWhiteSpace(nextChar);
 			if (isNextWhiteSpace) canOpen = false;
@@ -10590,7 +10632,7 @@ function process_inlines(tokens, state) {
 				canClose = isNextPunctChar;
 			}
 			if (!canOpen && !canClose) {
-				if (isSingle) token.content = replaceAt(token.content, t.index, APOSTROPHE);
+				if (isSingle) addReplacement(replacements, i, t.index, APOSTROPHE);
 				continue;
 			}
 			if (canClose) for (j = stack.length - 1; j >= 0; j--) {
@@ -10607,12 +10649,8 @@ function process_inlines(tokens, state) {
 						openQuote = state.md.options.quotes[0];
 						closeQuote = state.md.options.quotes[1];
 					}
-					token.content = replaceAt(token.content, t.index, closeQuote);
-					tokens[item.token].content = replaceAt(tokens[item.token].content, item.pos, openQuote);
-					pos += closeQuote.length - 1;
-					if (item.token === i) pos += openQuote.length - 1;
-					text = token.content;
-					max = text.length;
+					addReplacement(replacements, i, t.index, closeQuote);
+					addReplacement(replacements, item.token, item.pos, openQuote);
 					stack.length = j;
 					continue OUTER;
 				}
@@ -10623,9 +10661,12 @@ function process_inlines(tokens, state) {
 				single: isSingle,
 				level: thisLevel
 			});
-			else if (canClose && isSingle) token.content = replaceAt(token.content, t.index, APOSTROPHE);
+			else if (canClose && isSingle) addReplacement(replacements, i, t.index, APOSTROPHE);
 		}
 	}
+	Object.keys(replacements).forEach(function(tokenIdx) {
+		tokens[tokenIdx].content = applyReplacements(tokens[tokenIdx].content, replacements[tokenIdx]);
+	});
 }
 function smartquotes(state) {
 	if (!state.md.options.typographer) return;
@@ -11513,8 +11554,11 @@ function html_block(state, startLine, endLine, silent) {
 	if (i === HTML_SEQUENCES.length) return false;
 	if (silent) return HTML_SEQUENCES[i][2];
 	let nextLine = startLine + 1;
+	const endsOnBlankLine = HTML_SEQUENCES[i][1].test("");
 	if (!HTML_SEQUENCES[i][1].test(lineText)) for (; nextLine < endLine; nextLine++) {
-		if (state.sCount[nextLine] < state.blkIndent) break;
+		if (state.sCount[nextLine] < state.blkIndent) {
+			if (endsOnBlankLine || !state.isEmpty(nextLine)) break;
+		}
 		pos = state.bMarks[nextLine] + state.tShift[nextLine];
 		max = state.eMarks[nextLine];
 		lineText = state.src.slice(pos, max);
@@ -11551,7 +11595,7 @@ function heading(state, startLine, endLine, silent) {
 	token_o.markup = "########".slice(0, level);
 	token_o.map = [startLine, state.line];
 	const token_i = state.push("inline", "", 0);
-	token_i.content = state.src.slice(pos, max).trim();
+	token_i.content = asciiTrim(state.src.slice(pos, max));
 	token_i.map = [startLine, state.line];
 	token_i.children = [];
 	const token_c = state.push("heading_close", "h" + String(level), -1);
@@ -11591,8 +11635,11 @@ function lheading(state, startLine, endLine) {
 		}
 		if (terminate) break;
 	}
-	if (!level) return false;
-	const content = state.getLines(startLine, nextLine, state.blkIndent, false).trim();
+	if (!level) {
+		state.parentType = oldParentType;
+		return false;
+	}
+	const content = asciiTrim(state.getLines(startLine, nextLine, state.blkIndent, false));
 	state.line = nextLine + 1;
 	const token_o = state.push("heading_open", "h" + String(level), 1);
 	token_o.markup = String.fromCharCode(marker);
@@ -11621,7 +11668,7 @@ function paragraph(state, startLine, endLine) {
 		}
 		if (terminate) break;
 	}
-	const content = state.getLines(startLine, nextLine, state.blkIndent, false).trim();
+	const content = asciiTrim(state.getLines(startLine, nextLine, state.blkIndent, false));
 	state.line = nextLine;
 	const token_o = state.push("paragraph_open", "p", 1);
 	token_o.map = [startLine, state.line];
@@ -11812,13 +11859,28 @@ StateInline.prototype.push = function(type, tag, nesting) {
 StateInline.prototype.scanDelims = function(start, canSplitWord) {
 	const max = this.posMax;
 	const marker = this.src.charCodeAt(start);
-	const lastChar = start > 0 ? this.src.charCodeAt(start - 1) : 32;
+	let lastChar;
+	if (start === 0) lastChar = 32;
+	else if (start === 1) {
+		lastChar = this.src.charCodeAt(0);
+		if ((lastChar & 63488) === 55296) lastChar = 65533;
+	} else {
+		lastChar = this.src.charCodeAt(start - 1);
+		if ((lastChar & 64512) === 56320) {
+			const highSurr = this.src.charCodeAt(start - 2);
+			lastChar = (highSurr & 64512) === 55296 ? 65536 + (highSurr - 55296 << 10) + (lastChar - 56320) : 65533;
+		} else if ((lastChar & 64512) === 55296) lastChar = 65533;
+	}
 	let pos = start;
 	while (pos < max && this.src.charCodeAt(pos) === marker) pos++;
 	const count = pos - start;
-	const nextChar = pos < max ? this.src.charCodeAt(pos) : 32;
-	const isLastPunctChar = isMdAsciiPunct(lastChar) || isPunctChar(String.fromCharCode(lastChar));
-	const isNextPunctChar = isMdAsciiPunct(nextChar) || isPunctChar(String.fromCharCode(nextChar));
+	let nextChar = pos < max ? this.src.charCodeAt(pos) : 32;
+	if ((nextChar & 64512) === 55296) {
+		const lowSurr = this.src.charCodeAt(pos + 1);
+		nextChar = (lowSurr & 64512) === 56320 ? 65536 + (nextChar - 55296 << 10) + (lowSurr - 56320) : 65533;
+	} else if ((nextChar & 64512) === 56320) nextChar = 65533;
+	const isLastPunctChar = isMdAsciiPunct(lastChar) || isPunctCharCode(lastChar);
+	const isNextPunctChar = isMdAsciiPunct(nextChar) || isPunctCharCode(nextChar);
 	const isLastWhiteSpace = isWhiteSpace(lastChar);
 	const isNextWhiteSpace = isWhiteSpace(nextChar);
 	const left_flanking = !isNextWhiteSpace && (!isNextPunctChar || isLastWhiteSpace || isLastPunctChar);
@@ -12390,7 +12452,7 @@ function entity(state, silent) {
 	} else {
 		const match = state.src.slice(pos).match(NAMED_RE);
 		if (match) {
-			const decoded = decodeHTML(match[0]);
+			const decoded = decodeHTMLStrict(match[0]);
 			if (decoded !== match[0]) {
 				if (!silent) {
 					const token = state.push("text_special", "", 0);
@@ -12687,10 +12749,6 @@ const defaultSchemas = {
 };
 const tlds_2ch_src_re = "a[cdefgilmnoqrstuwxz]|b[abdefghijmnorstvwyz]|c[acdfghiklmnoruvwxyz]|d[ejkmoz]|e[cegrstu]|f[ijkmor]|g[abdefghilmnpqrstuwy]|h[kmnrtu]|i[delmnoqrst]|j[emop]|k[eghimnprwyz]|l[abcikrstuvy]|m[acdeghklmnopqrstuvwxyz]|n[acefgilopruz]|om|p[aefghklmnrstwy]|qa|r[eosuw]|s[abcdeghijklmnortuvxyz]|t[cdfghjklmnortvwz]|u[agksyz]|v[aceginu]|w[fs]|y[et]|z[amw]";
 const tlds_default = "biz|com|edu|gov|net|org|pro|web|xxx|aero|asia|coop|info|museum|name|shop|рф".split("|");
-function resetScanCache(self) {
-	self.__index__ = -1;
-	self.__text_cache__ = "";
-}
 function createValidator(re) {
 	return function(text, pos) {
 		const tail = text.slice(pos);
@@ -12714,8 +12772,11 @@ function compile(self) {
 		return tpl.replace("%TLDS%", re.src_tlds);
 	}
 	re.email_fuzzy = RegExp(untpl(re.tpl_email_fuzzy), "i");
+	re.email_fuzzy_global = RegExp(untpl(re.tpl_email_fuzzy), "ig");
 	re.link_fuzzy = RegExp(untpl(re.tpl_link_fuzzy), "i");
+	re.link_fuzzy_global = RegExp(untpl(re.tpl_link_fuzzy), "ig");
 	re.link_no_ip_fuzzy = RegExp(untpl(re.tpl_link_no_ip_fuzzy), "i");
+	re.link_no_ip_fuzzy_global = RegExp(untpl(re.tpl_link_no_ip_fuzzy), "ig");
 	re.host_fuzzy_test = RegExp(untpl(re.tpl_host_fuzzy_test), "i");
 	const aliases = [];
 	self.__compiled__ = {};
@@ -12761,58 +12822,50 @@ function compile(self) {
 	self.re.schema_search = RegExp("(^|(?!_)(?:[><｜]|" + re.src_ZPCc + "))(" + slist + ")", "ig");
 	self.re.schema_at_start = RegExp("^" + self.re.schema_search.source, "i");
 	self.re.pretest = RegExp("(" + self.re.schema_test.source + ")|(" + self.re.host_fuzzy_test.source + ")|@", "i");
-	resetScanCache(self);
 }
 /**
 * class Match
 *
 * Match result. Single element of array, returned by [[LinkifyIt#match]]
 **/
-function Match(self, shift) {
-	const start = self.__index__;
-	const end = self.__last_index__;
-	const text = self.__text_cache__.slice(start, end);
+function Match(text, schema, index, lastIndex) {
+	const raw = text.slice(index, lastIndex);
 	/**
 	* Match#schema -> String
 	*
 	* Prefix (protocol) for matched string.
 	**/
-	this.schema = self.__schema__.toLowerCase();
+	this.schema = schema.toLowerCase();
 	/**
 	* Match#index -> Number
 	*
 	* First position of matched string.
 	**/
-	this.index = start + shift;
+	this.index = index;
 	/**
 	* Match#lastIndex -> Number
 	*
 	* Next position after matched string.
 	**/
-	this.lastIndex = end + shift;
+	this.lastIndex = lastIndex;
 	/**
 	* Match#raw -> String
 	*
 	* Matched string.
 	**/
-	this.raw = text;
+	this.raw = raw;
 	/**
 	* Match#text -> String
 	*
 	* Notmalized text of matched string.
 	**/
-	this.text = text;
+	this.text = raw;
 	/**
 	* Match#url -> String
 	*
 	* Normalized url of matched string.
 	**/
-	this.url = text;
-}
-function createMatch(self, shift) {
-	const match = new Match(self, shift);
-	self.__compiled__[match.schema].normalize(match, self);
-	return match;
+	this.url = raw;
 }
 /**
 * class LinkifyIt
@@ -12860,10 +12913,6 @@ function LinkifyIt(schemas, options) {
 		}
 	}
 	this.__opts__ = assign({}, defaultOptions, options);
-	this.__index__ = -1;
-	this.__last_index__ = -1;
-	this.__schema__ = "";
-	this.__text_cache__ = "";
 	this.__schemas__ = assign({}, defaultSchemas, schemas);
 	this.__compiled__ = {};
 	this.__tlds__ = tlds_default;
@@ -12899,53 +12948,24 @@ LinkifyIt.prototype.set = function set(options) {
 * Searches linkifiable pattern and returns `true` on success or `false` on fail.
 **/
 LinkifyIt.prototype.test = function test(text) {
-	this.__text_cache__ = text;
-	this.__index__ = -1;
 	if (!text.length) return false;
-	let m, ml, me, len, shift, next, re, tld_pos, at_pos;
+	let m, re;
 	if (this.re.schema_test.test(text)) {
 		re = this.re.schema_search;
 		re.lastIndex = 0;
-		while ((m = re.exec(text)) !== null) {
-			len = this.testSchemaAt(text, m[2], re.lastIndex);
-			if (len) {
-				this.__schema__ = m[2];
-				this.__index__ = m.index + m[1].length;
-				this.__last_index__ = m.index + m[0].length + len;
-				break;
-			}
-		}
+		while ((m = re.exec(text)) !== null) if (this.testSchemaAt(text, m[2], re.lastIndex)) return true;
 	}
 	if (this.__opts__.fuzzyLink && this.__compiled__["http:"]) {
-		tld_pos = text.search(this.re.host_fuzzy_test);
-		if (tld_pos >= 0) {
-			if (this.__index__ < 0 || tld_pos < this.__index__) {
-				if ((ml = text.match(this.__opts__.fuzzyIP ? this.re.link_fuzzy : this.re.link_no_ip_fuzzy)) !== null) {
-					shift = ml.index + ml[1].length;
-					if (this.__index__ < 0 || shift < this.__index__) {
-						this.__schema__ = "";
-						this.__index__ = shift;
-						this.__last_index__ = ml.index + ml[0].length;
-					}
-				}
-			}
+		if (text.search(this.re.host_fuzzy_test) >= 0) {
+			if (text.match(this.__opts__.fuzzyIP ? this.re.link_fuzzy : this.re.link_no_ip_fuzzy) !== null) return true;
 		}
 	}
 	if (this.__opts__.fuzzyEmail && this.__compiled__["mailto:"]) {
-		at_pos = text.indexOf("@");
-		if (at_pos >= 0) {
-			if ((me = text.match(this.re.email_fuzzy)) !== null) {
-				shift = me.index + me[1].length;
-				next = me.index + me[0].length;
-				if (this.__index__ < 0 || shift < this.__index__ || shift === this.__index__ && next > this.__last_index__) {
-					this.__schema__ = "mailto:";
-					this.__index__ = shift;
-					this.__last_index__ = next;
-				}
-			}
+		if (text.indexOf("@") >= 0) {
+			if (text.match(this.re.email_fuzzy) !== null) return true;
 		}
 	}
-	return this.__index__ >= 0;
+	return false;
 };
 /**
 * LinkifyIt#pretest(text) -> Boolean
@@ -12988,16 +13008,69 @@ LinkifyIt.prototype.testSchemaAt = function testSchemaAt(text, schema, pos) {
 **/
 LinkifyIt.prototype.match = function match(text) {
 	const result = [];
-	let shift = 0;
-	if (this.__index__ >= 0 && this.__text_cache__ === text) {
-		result.push(createMatch(this, shift));
-		shift = this.__last_index__;
+	const type_schemed = [];
+	const type_fuzzy_link = [];
+	const type_fuzzy_email = [];
+	let m, len, re;
+	function choose(a, b) {
+		if (!a) return b;
+		if (!b) return a;
+		if (a.index !== b.index) return a.index < b.index ? a : b;
+		return a.lastIndex >= b.lastIndex ? a : b;
 	}
-	let tail = shift ? text.slice(shift) : text;
-	while (this.test(tail)) {
-		result.push(createMatch(this, shift));
-		tail = tail.slice(this.__last_index__);
-		shift += this.__last_index__;
+	if (!text.length) return null;
+	if (this.re.schema_test.test(text)) {
+		re = this.re.schema_search;
+		re.lastIndex = 0;
+		while ((m = re.exec(text)) !== null) {
+			len = this.testSchemaAt(text, m[2], re.lastIndex);
+			if (len) type_schemed.push({
+				schema: m[2],
+				index: m.index + m[1].length,
+				lastIndex: m.index + m[0].length + len
+			});
+		}
+	}
+	if (this.__opts__.fuzzyLink && this.__compiled__["http:"]) {
+		re = this.__opts__.fuzzyIP ? this.re.link_fuzzy_global : this.re.link_no_ip_fuzzy_global;
+		re.lastIndex = 0;
+		while ((m = re.exec(text)) !== null) type_fuzzy_link.push({
+			schema: "",
+			index: m.index + m[1].length,
+			lastIndex: m.index + m[0].length
+		});
+	}
+	if (this.__opts__.fuzzyEmail && this.__compiled__["mailto:"]) {
+		re = this.re.email_fuzzy_global;
+		re.lastIndex = 0;
+		while ((m = re.exec(text)) !== null) type_fuzzy_email.push({
+			schema: "mailto:",
+			index: m.index + m[1].length,
+			lastIndex: m.index + m[0].length
+		});
+	}
+	const indexes = [
+		0,
+		0,
+		0
+	];
+	let lastIndex = 0;
+	for (;;) {
+		const candidates = [
+			type_schemed[indexes[0]],
+			type_fuzzy_email[indexes[1]],
+			type_fuzzy_link[indexes[2]]
+		];
+		const candidate = choose(choose(candidates[0], candidates[1]), candidates[2]);
+		if (!candidate) break;
+		if (candidate === candidates[0]) indexes[0]++;
+		else if (candidate === candidates[1]) indexes[1]++;
+		else indexes[2]++;
+		if (candidate.index < lastIndex) continue;
+		const match = new Match(text, candidate.schema, candidate.index, candidate.lastIndex);
+		this.__compiled__[match.schema].normalize(match, this);
+		result.push(match);
+		lastIndex = candidate.lastIndex;
 	}
 	if (result.length) return result;
 	return null;
@@ -13009,17 +13082,14 @@ LinkifyIt.prototype.match = function match(text) {
 * of the string, and null otherwise.
 **/
 LinkifyIt.prototype.matchAtStart = function matchAtStart(text) {
-	this.__text_cache__ = text;
-	this.__index__ = -1;
 	if (!text.length) return null;
 	const m = this.re.schema_at_start.exec(text);
 	if (!m) return null;
 	const len = this.testSchemaAt(text, m[2], m[0].length);
 	if (!len) return null;
-	this.__schema__ = m[2];
-	this.__index__ = m.index + m[1].length;
-	this.__last_index__ = m.index + m[0].length + len;
-	return createMatch(this, 0);
+	const match = new Match(text, m[2], m.index + m[1].length, m.index + m[0].length + len);
+	this.__compiled__[match.schema].normalize(match, this);
+	return match;
 };
 /** chainable
 * LinkifyIt#tlds(list [, keepOld]) -> this
@@ -13727,7 +13797,7 @@ function MarkdownIt(presetName, options) {
 * ```javascript
 * var md = require('markdown-it')()
 *             .set({ html: true, breaks: true })
-*             .set({ typographer, true });
+*             .set({ typographer: true });
 * ```
 *
 * __Note:__ To achieve the best possible performance, don't modify a

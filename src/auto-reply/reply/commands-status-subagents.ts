@@ -10,7 +10,7 @@ export function buildSubagentsStatusLine(params: {
   if (runs.length === 0) {
     return undefined;
   }
-  const active = runs.filter((entry) => !entry.endedAt || pendingDescendantsForRun(entry) > 0);
+  const active = runs.filter((entry) => typeof entry.endedAt !== "number");
   const done = runs.length - active.length;
   if (verboseEnabled) {
     const labels = active

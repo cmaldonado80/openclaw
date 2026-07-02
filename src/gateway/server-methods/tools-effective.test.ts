@@ -167,6 +167,52 @@ describe("tools.effective handler", () => {
     );
   });
 
+  it("inherits stored parent group lineage for spawned subagent sessions", async () => {
+    runtimeMocks.loadSessionEntry
+      .mockReturnValueOnce({
+        cfg: {},
+        canonicalKey: "agent:main:subagent:child",
+        entry: {
+          sessionId: "session-child",
+          updatedAt: 1,
+          spawnedBy: "agent:main:whatsapp:group:trusted",
+          modelProvider: "openai",
+          model: "gpt-4.1",
+        },
+      } as never)
+      .mockReturnValueOnce({
+        cfg: {},
+        canonicalKey: "agent:main:whatsapp:group:trusted",
+        entry: {
+          sessionId: "session-parent",
+          updatedAt: 1,
+          lastChannel: "whatsapp",
+          lastAccountId: "acct-parent",
+          groupId: "trusted",
+          groupChannel: "Milenium F&B",
+          space: "fnb",
+        },
+      } as never);
+    runtimeMocks.deliveryContextFromSession.mockReturnValueOnce(undefined as never);
+
+    const { respond, invoke } = createInvokeParams({ sessionKey: "agent:main:subagent:child" });
+    await invoke();
+
+    expect(runtimeMocks.loadSessionEntry).toHaveBeenCalledWith("agent:main:whatsapp:group:trusted");
+    expect(runtimeMocks.resolveEffectiveToolInventory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "agent:main:subagent:child",
+        spawnedBy: "agent:main:whatsapp:group:trusted",
+        messageProvider: "whatsapp",
+        accountId: "acct-parent",
+        groupId: "trusted",
+        groupChannel: "Milenium F&B",
+        groupSpace: "fnb",
+      }),
+    );
+    expect((respond.mock.calls[0] as RespondCall | undefined)?.[0]).toBe(true);
+  });
+
   it("falls back to origin.threadId when delivery context omits thread metadata", async () => {
     runtimeMocks.loadSessionEntry.mockReturnValueOnce({
       cfg: {},

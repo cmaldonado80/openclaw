@@ -363,12 +363,22 @@ describe("hasCompletedBootstrapTurn", () => {
 });
 
 describe("resolveContextInjectionMode", () => {
-  it("defaults to always when config is missing", () => {
-    expect(resolveContextInjectionMode(undefined)).toBe("always");
+  it("defaults to continuation-skip when config is missing", () => {
+    expect(resolveContextInjectionMode(undefined)).toBe("continuation-skip");
   });
 
-  it("defaults to always when the setting is omitted", () => {
-    expect(resolveContextInjectionMode({ agents: { defaults: {} } } as never)).toBe("always");
+  it("defaults to continuation-skip when the setting is omitted", () => {
+    expect(resolveContextInjectionMode({ agents: { defaults: {} } } as never)).toBe(
+      "continuation-skip",
+    );
+  });
+
+  it("returns the configured always mode", () => {
+    expect(
+      resolveContextInjectionMode({
+        agents: { defaults: { contextInjection: "always" } },
+      } as never),
+    ).toBe("always");
   });
 
   it("returns the configured continuation-skip mode", () => {

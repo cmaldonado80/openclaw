@@ -77,7 +77,7 @@ describe("buildSubagentList", () => {
     expect(list.active[0]?.line).not.toContain("after a short hard cutoff.");
   });
 
-  it("keeps ended orchestrators active while descendants remain pending", () => {
+  it("ended parent runs do not appear in active even with pending/stale descendants (endedAt is authoritative)", () => {
     const now = Date.now();
     const orchestratorRun = {
       runId: "run-orchestrator-ended",
@@ -113,8 +113,12 @@ describe("buildSubagentList", () => {
       taskMaxChars: 110,
     });
 
-    expect(list.active[0]?.status).toBe("active (waiting on 1 child)");
-    expect(list.recent).toEqual([]);
+    // endedAt on parent is authoritative; stale pending descendants must not promote it to active
+    expect(list.active).toEqual([]);
+    expect(list.recent).toHaveLength(1);
+    expect(list.recent[0]?.pendingDescendants).toBe(1);
+    expect(list.recent[0]?.status).toBe("done");
+    expect(list.recent[0]?.line).not.toContain("active (waiting on 1 child)");
   });
 
   it("formats io and prompt/cache usage from session entries", async () => {

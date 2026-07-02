@@ -1,21 +1,26 @@
 # CRITICAL RULES - READ FIRST
 
 ## Agent Files Are Sacred
+
 NEVER modify these files via SSH or node commands:
+
 - `/data/workspace/*/SOUL.md`
 - `/data/workspace/*/AGENTS.md`
 - `/data/agency-agents/*/SOUL.md`
 
 These are managed via GitHub only:
+
 - Repo: `cmaldonado80/webclaw-agents` (private)
 - To update: edit in GitHub → `cd ~/Desktop/WebClaw-Agents && git pull && bash restore.sh`
 
 ## Before ANY Deploy
+
 ```
 fly ssh console --app webclaw -C "bash /data/scripts/pre-deploy-check.sh"
 ```
 
 ## Config Editing Protocol (openclaw.json)
+
 1. `fly ssh console --app webclaw -C "cat /data/openclaw.json" > /tmp/current-openclaw.json`
 2. Edit locally with full visibility
 3. Validate: `node -e "JSON.parse(require('fs').readFileSync('/tmp/current-openclaw.json','utf8'))"`
@@ -23,10 +28,12 @@ fly ssh console --app webclaw -C "bash /data/scripts/pre-deploy-check.sh"
 5. Verify all 9 sections intact: `_RULES`, `gateway`, `agents`, `session`, `plugins`, `channels`, `models`, `diagnostics`, `tools`
 
 ## CRITICAL: Never run openclaw CLI via SSH
+
 NEVER: `fly ssh console --app webclaw -C "openclaw <cmd>"`
 The CLI blocks on TTY/stdin, spawns a runaway process (~485MB RSS), and takes down the Fly health check.
 
 USE INSTEAD:
+
 - WebShell: https://main.mghm.ai/webshell
 - Telegram: @Cabezon1Bot
 - Control UI: https://main.mghm.ai
@@ -83,7 +90,9 @@ fly ssh console --app webclaw -C "kill -9 <PID>"
 - The log line `synced openai-codex credentials from external cli` — no longer expected; absence is not a problem.
 
 ### n8n Health Monitor auto-recovery (to wire up)
+
 The n8n Health Monitor workflow should implement this boot-hang guard:
+
 - Poll `https://main.mghm.ai/health` every 30 s.
 - If health fails for >3 min continuously AND the machine state is `started` (i.e. proxy reports `[PR01] no known healthy instances`, gateway hung internally):
   1. Call `flyctl secrets unset CODEX_HOME --app webclaw` (machine restarts automatically).
@@ -413,46 +422,48 @@ The n8n Health Monitor workflow should implement this boot-hang guard:
 - Beta release guardrail: when using a beta Git tag (for example `vYYYY.M.D-beta.N`), publish npm with a matching beta version suffix (for example `YYYY.M.D-beta.N`) rather than a plain version on `--tag beta`; otherwise the plain version name gets consumed/blocked.
 
 <!-- gitnexus:start -->
+
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **WebClaw** (207408 symbols, 351808 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **openclaw** (128600 symbols, 327930 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
 ## Always Do
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
 - **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
 
 ## Never Do
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
+- NEVER edit a function, class, or method without first running `impact` on it.
 - NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
 
 ## Resources
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/WebClaw/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/WebClaw/clusters` | All functional areas |
-| `gitnexus://repo/WebClaw/processes` | All execution flows |
-| `gitnexus://repo/WebClaw/process/{name}` | Step-by-step execution trace |
+| Resource                                  | Use for                                  |
+| ----------------------------------------- | ---------------------------------------- |
+| `gitnexus://repo/openclaw/context`        | Codebase overview, check index freshness |
+| `gitnexus://repo/openclaw/clusters`       | All functional areas                     |
+| `gitnexus://repo/openclaw/processes`      | All execution flows                      |
+| `gitnexus://repo/openclaw/process/{name}` | Step-by-step execution trace             |
 
 ## CLI
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Task                                         | Read this skill file                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
+| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
+| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
+| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
+| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
 
@@ -461,6 +472,7 @@ This project is indexed by GitNexus as **WebClaw** (207408 symbols, 351808 relat
 This project has a graphify knowledge graph at graphify-out/.
 
 Rules:
+
 - Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
 - If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
 - After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)

@@ -1942,6 +1942,68 @@ describe("subagent announce formatting", () => {
     expect(msg).not.toContain("intermediate assistant note");
   });
 
+  it("adds a caveat when ok completion output has no verifiable evidence", async () => {
+    chatHistoryMock.mockResolvedValueOnce({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "WORKSPACE_HANDOFF\n\nall done" }],
+        },
+      ],
+    });
+    readLatestAssistantReplyMock.mockResolvedValue("");
+
+    const didAnnounce = await runSubagentAnnounceFlow({
+      childSessionKey: "agent:main:subagent:worker",
+      childRunId: "run-completion-no-evidence",
+      requesterSessionKey: "agent:main:main",
+      requesterDisplayKey: "main",
+      requesterOrigin: { channel: "discord", to: "channel:12345", accountId: "acct-1" },
+      expectsCompletionMessage: true,
+      ...defaultOutcomeAnnounce,
+    });
+
+    expect(didAnnounce).toBe(true);
+    const call = agentSpy.mock.calls[0]?.[0] as { params?: { message?: string } };
+    const msg = call?.params?.message as string;
+    expect(msg).toContain("WORKSPACE_HANDOFF");
+    expect(msg).toContain("CAVEAT: Subagent reported ok status");
+  });
+
+  it("does not add a caveat when assistant terminal handoff contains evidence", async () => {
+    chatHistoryMock.mockResolvedValueOnce({
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "WORKSPACE_HANDOFF\n\nchanged src/agents/subagent-announce-output.ts\nTests 2 passed",
+            },
+          ],
+        },
+      ],
+    });
+    readLatestAssistantReplyMock.mockResolvedValue("");
+
+    const didAnnounce = await runSubagentAnnounceFlow({
+      childSessionKey: "agent:main:subagent:worker",
+      childRunId: "run-completion-assistant-evidence",
+      requesterSessionKey: "agent:main:main",
+      requesterDisplayKey: "main",
+      requesterOrigin: { channel: "discord", to: "channel:12345", accountId: "acct-1" },
+      expectsCompletionMessage: true,
+      ...defaultOutcomeAnnounce,
+    });
+
+    expect(didAnnounce).toBe(true);
+    const call = agentSpy.mock.calls[0]?.[0] as { params?: { message?: string } };
+    const msg = call?.params?.message as string;
+    expect(msg).toContain("WORKSPACE_HANDOFF");
+    expect(msg).toContain("src/agents/subagent-announce-output.ts");
+    expect(msg).not.toContain("CAVEAT:");
+  });
+
   it("ignores user text when deriving fallback completion output", async () => {
     chatHistoryMock.mockResolvedValueOnce({
       messages: [

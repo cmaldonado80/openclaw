@@ -76,7 +76,40 @@ type SubagentOutputSnapshot = {
   terminalMarkerText?: string;
   assistantFragments: string[];
   toolCallCount: number;
+  /** Evidence signals for automated caveat detection. */
+  evidenceSignals: SubagentEvidenceSignals;
 };
+
+type SubagentEvidenceSignals = {
+  /** Number of tool calls observed in assistant messages. */
+  toolCallCount: number;
+  /** Whether any tool result content was observed. */
+  hasToolResults: boolean;
+  /** Whether any file path references (e.g. src/foo.ts) appear in output. */
+  hasFilePathReferences: boolean;
+  /** Whether test output patterns (PASS/FAIL/Test Files/Tests ) appear. */
+  hasTestOutput: boolean;
+  /** Whether commit hashes (7+ hex chars) appear. */
+  hasCommitHash: boolean;
+  /** Whether health/grep/diff command output patterns appear. */
+  hasCommandOutput: boolean;
+};
+
+const EMPTY_EVIDENCE_SIGNALS: SubagentEvidenceSignals = {
+  toolCallCount: 0,
+  hasToolResults: false,
+  hasFilePathReferences: false,
+  hasTestOutput: false,
+  hasCommitHash: false,
+  hasCommandOutput: false,
+};
+
+/** Patterns that indicate real verification evidence in subagent output. */
+const FILE_PATH_PATTERN = /(?:src\/|extensions\/|\/workspace|\.\/)[\w./-]+\.[a-z]{2,}/i;
+const TEST_OUTPUT_PATTERN = /(?:Test Files|Tests \d+|\d+\/\d+ (?:pass|fail)|PASS|FAIL)/;
+const COMMIT_HASH_PATTERN = /\b[0-9a-f]{7,40}\b/;
+const COMMAND_OUTPUT_PATTERN =
+  /(?:\$\s|exit\s+code|stderr|stdout|\d+\s+(?:insertions?|deletions?|files))/;
 
 export type AgentWaitResult = {
   status?: string;
@@ -192,10 +225,26 @@ function countAssistantToolCalls(content: unknown): number {
   return count;
 }
 
+function captureEvidenceSignalsFromText(signals: SubagentEvidenceSignals, text: string) {
+  if (!signals.hasFilePathReferences && FILE_PATH_PATTERN.test(text)) {
+    signals.hasFilePathReferences = true;
+  }
+  if (!signals.hasTestOutput && TEST_OUTPUT_PATTERN.test(text)) {
+    signals.hasTestOutput = true;
+  }
+  if (!signals.hasCommitHash && COMMIT_HASH_PATTERN.test(text)) {
+    signals.hasCommitHash = true;
+  }
+  if (!signals.hasCommandOutput && COMMAND_OUTPUT_PATTERN.test(text)) {
+    signals.hasCommandOutput = true;
+  }
+}
+
 function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutputSnapshot {
   const snapshot: SubagentOutputSnapshot = {
     assistantFragments: [],
     toolCallCount: 0,
+    evidenceSignals: { ...EMPTY_EVIDENCE_SIGNALS },
   };
   for (const message of messages) {
     if (!message || typeof message !== "object") {
@@ -204,6 +253,7 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
     const role = (message as { role?: unknown }).role;
     if (role === "assistant") {
       snapshot.toolCallCount += countAssistantToolCalls((message as { content?: unknown }).content);
+      snapshot.evidenceSignals.toolCallCount = snapshot.toolCallCount;
       const text = extractSubagentOutputText(message).trim();
       if (!text) {
         continue;
@@ -217,6 +267,7 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
       snapshot.latestSilentText = undefined;
       snapshot.latestAssistantText = text;
       snapshot.assistantFragments.push(text);
+      captureEvidenceSignalsFromText(snapshot.evidenceSignals, text);
       // Also check assistant text for terminal markers so they take priority
       // over non-marker assistant fragments produced earlier in the run.
       const assistantMarkerText = findTerminalMarkerText(text);
@@ -228,6 +279,8 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
     const text = extractSubagentOutputText(message).trim();
     if (text) {
       snapshot.latestRawText = text;
+      snapshot.evidenceSignals.hasToolResults = true;
+      captureEvidenceSignalsFromText(snapshot.evidenceSignals, text);
       // Check for terminal handoff markers in tool results and non-assistant messages.
       // These take priority over assistant text in the selection chain because they
       // represent structured completion signals that must be surfaced to the requester.
@@ -263,6 +316,71 @@ function formatSubagentPartialProgress(
   return parts.join("\n\n") || undefined;
 }
 
+/**
+ * Automated caveat detection: checks whether the subagent output contains
+ * verifiable evidence of work performed. When claims are made without evidence,
+ * a structured caveat is injected to warn the requester.
+ *
+ * This implements the maker-checker separation: the subagent (maker) claims
+ * completion, and the announce layer (checker) verifies evidence is present.
+ */
+function detectMissingEvidenceCaveat(
+  snapshot: SubagentOutputSnapshot,
+  selectedText: string | undefined,
+  outcome?: SubagentRunOutcome,
+): string | undefined {
+  if (!selectedText?.trim()) {
+    return undefined;
+  }
+  // Don't add caveats to terminal marker text — it's already structured
+  if (snapshot.terminalMarkerText && selectedText === snapshot.terminalMarkerText) {
+    // But DO check if the terminal marker itself lacks evidence
+    const signals = snapshot.evidenceSignals;
+    const hasEvidence =
+      signals.hasFilePathReferences ||
+      signals.hasTestOutput ||
+      signals.hasCommitHash ||
+      signals.hasCommandOutput;
+    if (!hasEvidence && signals.toolCallCount === 0 && outcome?.status === "ok") {
+      return (
+        "CAVEAT: Subagent reported ok status with a terminal marker but no tool calls or verifiable evidence " +
+        "(no file paths, test output, commit hashes, or command output detected)."
+      );
+    }
+    return undefined;
+  }
+  // Don't add caveats to silent replies or partial progress
+  if (snapshot.latestSilentText) {
+    return undefined;
+  }
+
+  const signals = snapshot.evidenceSignals;
+  const hasEvidence =
+    signals.hasFilePathReferences ||
+    signals.hasTestOutput ||
+    signals.hasCommitHash ||
+    signals.hasCommandOutput;
+
+  // If the subagent claims completion but has zero tool calls and zero evidence
+  if (signals.toolCallCount === 0 && !hasEvidence && outcome?.status === "ok") {
+    return (
+      "CAVEAT: Subagent reported ok status but made 0 tool calls and produced no verifiable evidence " +
+      "(no file paths, test output, commit hashes, or command output detected in session history)."
+    );
+  }
+
+  // If there were tool calls but no evidence in the output text at all
+  if (signals.toolCallCount > 0 && !hasEvidence && !selectedText.includes("WORKSPACE_HANDOFF")) {
+    return (
+      "CAVEAT: Subagent executed tool calls but output contains no verifiable evidence patterns " +
+      "(file paths, test results, commit hashes, or command output). " +
+      `Tool calls: ${signals.toolCallCount}.`
+    );
+  }
+
+  return undefined;
+}
+
 function selectSubagentOutputText(
   snapshot: SubagentOutputSnapshot,
   outcome?: SubagentRunOutcome,
@@ -270,20 +388,20 @@ function selectSubagentOutputText(
   // Terminal handoff markers in any message role take top priority:
   // they represent structured completion signals (WORKSPACE_HANDOFF, etc.)
   // that must be surfaced even if earlier assistant text was produced.
-  if (snapshot.terminalMarkerText) {
-    return snapshot.terminalMarkerText;
+  const selected =
+    snapshot.terminalMarkerText ??
+    snapshot.latestSilentText ??
+    snapshot.latestAssistantText ??
+    formatSubagentPartialProgress(snapshot, outcome) ??
+    snapshot.latestRawText;
+
+  // Automated caveat injection: if no verifiable evidence is present,
+  // append a structured caveat so the requester is warned.
+  const caveat = detectMissingEvidenceCaveat(snapshot, selected, outcome);
+  if (caveat && selected) {
+    return `${selected}\n\n${caveat}`;
   }
-  if (snapshot.latestSilentText) {
-    return snapshot.latestSilentText;
-  }
-  if (snapshot.latestAssistantText) {
-    return snapshot.latestAssistantText;
-  }
-  const partialProgress = formatSubagentPartialProgress(snapshot, outcome);
-  if (partialProgress) {
-    return partialProgress;
-  }
-  return snapshot.latestRawText;
+  return selected;
 }
 
 export async function readSubagentOutput(

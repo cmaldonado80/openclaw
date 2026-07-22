@@ -4,7 +4,7 @@ import { getSafeLocalStorage } from "../../local-storage.ts";
 import type { AssistantIdentity } from "../assistant-identity.ts";
 import type { EmbedSandboxMode } from "../embed-sandbox.ts";
 import { icons } from "../icons.ts";
-import { toSanitizedMarkdownHtml } from "../markdown.ts";
+import { type MarkdownRenderOptions, toSanitizedMarkdownHtml } from "../markdown.ts";
 import { openExternalUrlSafe } from "../open-external-url.ts";
 import type { SidebarContent } from "../sidebar-content.ts";
 import { detectTextDirection } from "../text-direction.ts";
@@ -734,6 +734,40 @@ function buildAssistantAttachmentMetaUrl(
   return `${attachmentUrl}${attachmentUrl.includes("?") ? "&" : "?"}meta=1`;
 }
 
+function isLocalMarkdownFileHref(href: string): boolean {
+  const trimmed = href.trim();
+  if (!trimmed || /^\/(?:__openclaw__|media)\//.test(trimmed)) {
+    return false;
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
+    return trimmed.startsWith("file://");
+  }
+  return (
+    trimmed === "~" ||
+    trimmed.startsWith("~/") ||
+    /^\/(?:Users|home|tmp|private\/tmp)\//.test(trimmed) ||
+    /^[a-zA-Z]:[\\/]/.test(trimmed)
+  );
+}
+
+function buildMarkdownRenderOptionsForChat(opts: {
+  basePath?: string;
+  localMediaPreviewRoots?: readonly string[];
+  assistantAttachmentAuthToken?: string | null;
+}): MarkdownRenderOptions {
+  return {
+    resolveLinkHref: (href) => {
+      if (!isLocalMarkdownFileHref(href)) {
+        return href;
+      }
+      if (!isLocalAttachmentPreviewAllowed(href, opts.localMediaPreviewRoots ?? [])) {
+        return href;
+      }
+      return buildAssistantAttachmentUrl(href, opts.basePath, opts.assistantAttachmentAuthToken);
+    },
+  };
+}
+
 function resolveAssistantAttachmentAvailability(
   source: string,
   localMediaPreviewRoots: readonly string[],
@@ -1087,6 +1121,11 @@ function renderGroupedMessage(
   const markdownBase = extractedText?.trim() ? extractedText : null;
   const reasoningMarkdown = extractedThinking ? formatReasoningMarkdown(extractedThinking) : null;
   const markdown = markdownBase;
+  const markdownOptions = buildMarkdownRenderOptionsForChat({
+    basePath: opts.basePath,
+    localMediaPreviewRoots: opts.localMediaPreviewRoots,
+    assistantAttachmentAuthToken: opts.assistantAttachmentAuthToken,
+  });
   const canCopyMarkdown = role === "assistant" && Boolean(markdown?.trim());
   const canExpand = role === "assistant" && Boolean(onOpenSidebar && markdown?.trim());
 
@@ -1173,7 +1212,9 @@ function renderGroupedMessage(
                       )}
                       ${reasoningMarkdown
                         ? html`<div class="chat-thinking">
-                            ${unsafeHTML(toSanitizedMarkdownHtml(reasoningMarkdown))}
+                            ${unsafeHTML(
+                              toSanitizedMarkdownHtml(reasoningMarkdown, markdownOptions),
+                            )}
                           </div>`
                         : nothing}
                       ${jsonResult
@@ -1191,7 +1232,7 @@ function renderGroupedMessage(
                           </details>`
                         : markdown
                           ? html`<div class="chat-text" dir="${detectTextDirection(markdown)}">
-                              ${unsafeHTML(toSanitizedMarkdownHtml(markdown))}
+                              ${unsafeHTML(toSanitizedMarkdownHtml(markdown, markdownOptions))}
                             </div>`
                           : nothing}
                       ${hasToolCards
@@ -1229,7 +1270,7 @@ function renderGroupedMessage(
             )}
             ${reasoningMarkdown
               ? html`<div class="chat-thinking">
-                  ${unsafeHTML(toSanitizedMarkdownHtml(reasoningMarkdown))}
+                  ${unsafeHTML(toSanitizedMarkdownHtml(reasoningMarkdown, markdownOptions))}
                 </div>`
               : nothing}
             ${normalizedRole === "assistant" && assistantViewBlocks.length > 0
@@ -1253,7 +1294,7 @@ function renderGroupedMessage(
                 </details>`
               : markdown
                 ? html`<div class="chat-text" dir="${detectTextDirection(markdown)}">
-                    ${unsafeHTML(toSanitizedMarkdownHtml(markdown))}
+                    ${unsafeHTML(toSanitizedMarkdownHtml(markdown, markdownOptions))}
                   </div>`
                 : nothing}
             ${hasToolCards

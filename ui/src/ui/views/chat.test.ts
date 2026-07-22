@@ -2041,6 +2041,62 @@ describe("chat view", () => {
     vi.unstubAllGlobals();
   });
 
+  it("rewrites allowed local markdown file links through the Control UI media route", () => {
+    resetAssistantAttachmentAvailabilityCacheForTest();
+    const container = document.createElement("div");
+    render(
+      renderChat(
+        createProps({
+          showToolCalls: false,
+          basePath: "/openclaw",
+          assistantAttachmentAuthToken: "session-token",
+          localMediaPreviewRoots: ["/tmp/openclaw"],
+          messages: [
+            {
+              id: "assistant-local-markdown-file-link",
+              role: "assistant",
+              content: "Reporte con evidencia y URLs: [report.md](/tmp/openclaw/report.md)",
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+      ),
+      container,
+    );
+
+    const link = container.querySelector<HTMLAnchorElement>(".chat-text a");
+    expect(link?.textContent).toBe("report.md");
+    expect(link?.getAttribute("href")).toBe(
+      "/openclaw/__openclaw__/assistant-media?source=%2Ftmp%2Fopenclaw%2Freport.md&token=session-token",
+    );
+  });
+
+  it("does not rewrite app-relative markdown links as local files", () => {
+    resetAssistantAttachmentAvailabilityCacheForTest();
+    const container = document.createElement("div");
+    render(
+      renderChat(
+        createProps({
+          showToolCalls: false,
+          basePath: "/openclaw",
+          localMediaPreviewRoots: ["/tmp/openclaw"],
+          messages: [
+            {
+              id: "assistant-app-relative-markdown-link",
+              role: "assistant",
+              content: "Open [settings](/settings)",
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+      ),
+      container,
+    );
+
+    const link = container.querySelector<HTMLAnchorElement>(".chat-text a");
+    expect(link?.getAttribute("href")).toBe("/settings");
+  });
+
   it("rechecks local assistant attachment availability when the auth token changes", async () => {
     resetAssistantAttachmentAvailabilityCacheForTest();
     const fetchMock = vi.fn(async (url: string) => {

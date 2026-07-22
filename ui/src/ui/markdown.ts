@@ -70,6 +70,10 @@ const INLINE_DATA_IMAGE_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
 const markdownCache = new Map<string, string>();
 const TAIL_LINK_BLUR_CLASS = "chat-link-tail-blur";
 
+export type MarkdownRenderOptions = {
+  resolveLinkHref?: (href: string) => string | null | undefined;
+};
+
 // CJK character ranges for URL boundary detection (RFC 3986: CJK is not valid in raw URLs).
 // CJK Unified Ideographs, CJK Symbols/Punctuation, Fullwidth Forms, Hiragana, Katakana,
 // Hangul Syllables, and CJK Compatibility Ideographs.
@@ -274,7 +278,6 @@ md.linkify.add("www", {
       break;
     }
     return len;
-
   },
   normalize(match) {
     match.url = "http://" + match.url;
@@ -407,6 +410,22 @@ md.renderer.rules.html_inline = (tokens, idx) => {
   return escapeHtml(token.content);
 };
 
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const token = tokens[idx];
+  const resolver =
+    env && typeof env === "object" && "resolveLinkHref" in env
+      ? (env as MarkdownRenderOptions).resolveLinkHref
+      : undefined;
+  const href = token.attrGet("href");
+  if (href && resolver) {
+    const resolved = resolver(href);
+    if (typeof resolved === "string" && resolved.trim()) {
+      token.attrSet("href", resolved);
+    }
+  }
+  return self.renderToken(tokens, idx, options);
+};
+
 // Override image to only allow base64 data URIs (#15437)
 md.renderer.rules.image = (tokens, idx) => {
   const token = tokens[idx];
@@ -475,13 +494,17 @@ md.renderer.rules.code_block = (tokens, idx) => {
   return `<div class="code-block-wrapper">${header}${codeBlock}</div>`;
 };
 
-export function toSanitizedMarkdownHtml(markdown: string): string {
+export function toSanitizedMarkdownHtml(
+  markdown: string,
+  options: MarkdownRenderOptions = {},
+): string {
   const input = markdown.trim();
   if (!input) {
     return "";
   }
   installHooks();
-  if (input.length <= MARKDOWN_CACHE_MAX_CHARS) {
+  const canUseCache = !options.resolveLinkHref;
+  if (canUseCache && input.length <= MARKDOWN_CACHE_MAX_CHARS) {
     const cached = getCachedMarkdown(input);
     if (cached !== null) {
       return cached;
@@ -497,14 +520,14 @@ export function toSanitizedMarkdownHtml(markdown: string): string {
     // and other structured text that commonly trips the parse guard.
     const html = renderEscapedPlainTextHtml(`${truncated.text}${suffix}`);
     const sanitized = DOMPurify.sanitize(html, sanitizeOptions);
-    if (input.length <= MARKDOWN_CACHE_MAX_CHARS) {
+    if (canUseCache && input.length <= MARKDOWN_CACHE_MAX_CHARS) {
       setCachedMarkdown(input, sanitized);
     }
     return sanitized;
   }
   let rendered: string;
   try {
-    rendered = md.render(`${truncated.text}${suffix}`);
+    rendered = md.render(`${truncated.text}${suffix}`, options);
   } catch (err) {
     // Fall back to escaped plain text when md.render() throws (#36213).
     console.warn("[markdown] md.render failed, falling back to plain text:", err);
@@ -512,7 +535,7 @@ export function toSanitizedMarkdownHtml(markdown: string): string {
     rendered = `<pre class="code-block">${escaped}</pre>`;
   }
   const sanitized = DOMPurify.sanitize(rendered, sanitizeOptions);
-  if (input.length <= MARKDOWN_CACHE_MAX_CHARS) {
+  if (canUseCache && input.length <= MARKDOWN_CACHE_MAX_CHARS) {
     setCachedMarkdown(input, sanitized);
   }
   return sanitized;

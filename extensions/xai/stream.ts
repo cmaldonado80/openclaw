@@ -6,6 +6,7 @@ import {
   createHtmlEntityToolCallArgumentDecodingWrapper,
   createToolStreamWrapper,
 } from "openclaw/plugin-sdk/provider-stream-shared";
+import { stripXaiUnsupportedKeywords } from "openclaw/plugin-sdk/provider-tools";
 
 const XAI_FAST_MODEL_IDS = new Map<string, string>([
   ["grok-3", "grok-3-fast"],
@@ -167,7 +168,18 @@ export function createXaiToolPayloadCompatibilityWrapper(
         if (payload && typeof payload === "object") {
           const payloadObj = payload as Record<string, unknown>;
           if (Array.isArray(payloadObj.tools)) {
-            payloadObj.tools = payloadObj.tools.map((tool) => stripUnsupportedStrictFlag(tool));
+            payloadObj.tools = payloadObj.tools.map((tool) => {
+              let cleaned = stripUnsupportedStrictFlag(tool);
+              if (cleaned && typeof cleaned === "object") {
+                const t = cleaned as Record<string, unknown>;
+                const fn = t.function as Record<string, unknown> | undefined;
+                if (fn && fn.parameters && typeof fn.parameters === "object") {
+                  fn.parameters = stripXaiUnsupportedKeywords(fn.parameters);
+                }
+                cleaned = t;
+              }
+              return cleaned;
+            });
           }
           normalizeXaiResponsesToolResultPayload(payloadObj, model);
           delete payloadObj.reasoning;

@@ -1981,6 +1981,66 @@ describe("task-registry", () => {
     });
   });
 
+  it("cancels stale subagent-backed tasks when the backing subagent is already gone", async () => {
+    await withTaskRegistryTempDir(async (root) => {
+      process.env.OPENCLAW_STATE_DIR = root;
+      hoisted.killSubagentRunAdminMock.mockResolvedValue({
+        found: true,
+        killed: false,
+      });
+
+      const task = createTaskRecord({
+        runtime: "subagent",
+        ownerKey: "agent:main:main",
+        scopeKind: "session",
+        requesterOrigin: {
+          channel: "telegram",
+          to: "telegram:123",
+        },
+        childSessionKey: "agent:worker:subagent:child",
+        runId: "run-cancel-stale-subagent",
+        task: "Investigate stale work",
+        status: "running",
+        deliveryStatus: "pending",
+      });
+
+      const result = await cancelTaskById({
+        cfg: {} as never,
+        taskId: task.taskId,
+      });
+
+      expect(hoisted.killSubagentRunAdminMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cfg: {},
+          sessionKey: "agent:worker:subagent:child",
+        }),
+      );
+      expect(result).toMatchObject({
+        found: true,
+        cancelled: true,
+        reason: "Subagent was not running.",
+        task: expect.objectContaining({
+          taskId: task.taskId,
+          status: "cancelled",
+          error: "Cancelled by operator. Subagent was not running.",
+        }),
+      });
+      expect(getTaskById(task.taskId)).toMatchObject({
+        status: "cancelled",
+        error: "Cancelled by operator. Subagent was not running.",
+      });
+      await waitForAssertion(() =>
+        expect(hoisted.sendMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            channel: "telegram",
+            to: "telegram:123",
+            content: "Background task cancelled: Subagent task (run run-canc).",
+          }),
+        ),
+      );
+    });
+  });
+
   it("cancels CLI-tracked tasks in the registry without ACP or subagent teardown", async () => {
     await withTaskRegistryTempDir(async (root) => {
       process.env.OPENCLAW_STATE_DIR = root;

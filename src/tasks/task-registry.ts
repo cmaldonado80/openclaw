@@ -1771,11 +1771,21 @@ export async function cancelTaskById(params: {
           sessionKey: childSessionKey,
         });
         if (!result.found || !result.killed) {
+          const reason = result.found ? "Subagent was not running." : "Subagent task not found.";
+          const updated = updateTask(task.taskId, {
+            status: "cancelled",
+            endedAt: Date.now(),
+            lastEventAt: Date.now(),
+            error: `Cancelled by operator. ${reason}`,
+          });
+          if (updated) {
+            void maybeDeliverTaskTerminalUpdate(updated.taskId);
+          }
           return {
             found: true,
-            cancelled: false,
-            reason: result.found ? "Subagent was not running." : "Subagent task not found.",
-            task: cloneTaskRecord(task),
+            cancelled: true,
+            reason,
+            task: updated ?? cloneTaskRecord(task),
           };
         }
       } else {

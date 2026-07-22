@@ -43,6 +43,7 @@ describe("Codex app-server approval bridge", () => {
       paramsForRun: params,
       threadId: "thread-1",
       turnId: "turn-1",
+      approvalPolicy: "on-request",
     });
 
     expect(result).toEqual({ decision: "accept" });
@@ -76,6 +77,37 @@ describe("Codex app-server approval bridge", () => {
     );
   });
 
+  it("auto-accepts command approvals when native approval policy is never", async () => {
+    const params = createParams();
+
+    const result = await handleCodexAppServerApprovalRequest({
+      method: "item/commandExecution/requestApproval",
+      requestParams: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "cmd-1",
+        command: "date +%F",
+      },
+      paramsForRun: params,
+      threadId: "thread-1",
+      turnId: "turn-1",
+      approvalPolicy: "never",
+    });
+
+    expect(result).toEqual({ decision: "acceptForSession" });
+    expect(mockCallGatewayTool).not.toHaveBeenCalled();
+    expect(params.onAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stream: "approval",
+        data: expect.objectContaining({
+          status: "approved",
+          command: "date +%F",
+          message: "Codex app-server command approval skipped by native policy.",
+        }),
+      }),
+    );
+  });
+
   it("fails closed when no approval route is available", async () => {
     const params = createParams();
     mockCallGatewayTool.mockResolvedValueOnce({
@@ -94,6 +126,7 @@ describe("Codex app-server approval bridge", () => {
       paramsForRun: params,
       threadId: "thread-1",
       turnId: "turn-1",
+      approvalPolicy: "on-request",
     });
 
     expect(result).toEqual({ decision: "decline" });

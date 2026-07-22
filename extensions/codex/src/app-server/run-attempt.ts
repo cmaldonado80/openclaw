@@ -19,7 +19,11 @@ import {
 } from "openclaw/plugin-sdk/agent-harness";
 import { handleCodexAppServerApprovalRequest } from "./approval-bridge.js";
 import { isCodexAppServerApprovalRequest, type CodexAppServerClient } from "./client.js";
-import { resolveCodexAppServerRuntimeOptions, type CodexAppServerStartOptions } from "./config.js";
+import {
+  resolveCodexAppServerRuntimeOptions,
+  type CodexAppServerApprovalPolicy,
+  type CodexAppServerStartOptions,
+} from "./config.js";
 import { createCodexDynamicToolBridge } from "./dynamic-tools.js";
 import { CodexAppServerEventProjector } from "./event-projector.js";
 import {
@@ -216,6 +220,7 @@ export async function runCodexAppServerAttempt(
             paramsForRun: params,
             threadId: thread.threadId,
             turnId: requestTurnId,
+            approvalPolicy: appServer.approvalPolicy,
             signal: runAbortController.signal,
           }),
         );
@@ -226,7 +231,9 @@ export async function runCodexAppServerAttempt(
     if (!call || call.threadId !== thread.threadId || call.turnId !== requestTurnId) {
       return undefined;
     }
-    return withAppServerRequestActivity(() => toolBridge.handleToolCall(call) as Promise<JsonValue>);
+    return withAppServerRequestActivity(
+      () => toolBridge.handleToolCall(call) as Promise<JsonValue>,
+    );
   });
 
   let turn: CodexTurnStartResponse;
@@ -551,6 +558,7 @@ function handleApprovalRequest(params: {
   paramsForRun: EmbeddedRunAttemptParams;
   threadId: string;
   turnId: string;
+  approvalPolicy: CodexAppServerApprovalPolicy;
   signal?: AbortSignal;
 }): Promise<JsonValue | undefined> {
   return handleCodexAppServerApprovalRequest({
@@ -559,6 +567,7 @@ function handleApprovalRequest(params: {
     paramsForRun: params.paramsForRun,
     threadId: params.threadId,
     turnId: params.turnId,
+    approvalPolicy: params.approvalPolicy,
     signal: params.signal,
   });
 }

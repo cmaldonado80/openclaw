@@ -4,6 +4,7 @@ import {
   type EmbeddedRunAttemptParams,
   type ExecApprovalDecision,
 } from "openclaw/plugin-sdk/agent-harness";
+import type { CodexAppServerApprovalPolicy } from "./config.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "./protocol.js";
 
 const DEFAULT_CODEX_APPROVAL_TIMEOUT_MS = 120_000;
@@ -32,6 +33,7 @@ export async function handleCodexAppServerApprovalRequest(params: {
   paramsForRun: EmbeddedRunAttemptParams;
   threadId: string;
   turnId: string;
+  approvalPolicy: CodexAppServerApprovalPolicy;
   signal?: AbortSignal;
 }): Promise<JsonValue | undefined> {
   const requestParams = isJsonObject(params.requestParams) ? params.requestParams : undefined;
@@ -44,6 +46,18 @@ export async function handleCodexAppServerApprovalRequest(params: {
     requestParams,
     paramsForRun: params.paramsForRun,
   });
+
+  if (context.kind === "exec" && params.approvalPolicy === "never") {
+    emitApprovalEvent(params.paramsForRun, {
+      phase: "resolved",
+      kind: context.kind,
+      status: "approved",
+      title: context.title,
+      ...context.eventDetails,
+      message: "Codex app-server command approval skipped by native policy.",
+    });
+    return buildApprovalResponse(params.method, context.requestParams, "approved-session");
+  }
 
   try {
     const timeoutMs = DEFAULT_CODEX_APPROVAL_TIMEOUT_MS;

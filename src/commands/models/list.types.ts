@@ -12,6 +12,7 @@ export type ModelRow = {
   contextWindow: number | null;
   local: boolean | null;
   available: boolean | null;
+  supportsTools: boolean | null;
   tags: string[];
   missing: boolean;
 };

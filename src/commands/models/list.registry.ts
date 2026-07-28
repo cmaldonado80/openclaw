@@ -2,6 +2,7 @@ import type { Api, Model } from "@mariozechner/pi-ai";
 import type { ModelRegistry } from "@mariozechner/pi-coding-agent";
 import type { AuthProfileStore } from "../../agents/auth-profiles/types.js";
 import { shouldSuppressBuiltInModel } from "../../agents/model-suppression.js";
+import { supportsModelTools } from "../../agents/model-tool-support.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   formatErrorWithStack,
@@ -168,6 +169,7 @@ export function toModelRow(params: {
       contextWindow: null,
       local: null,
       available: null,
+      supportsTools: null,
       tags: [...tags, "missing"],
       missing: true,
     };
@@ -204,6 +206,7 @@ export function toModelRow(params: {
     contextWindow: model.contextWindow ?? null,
     local,
     available,
+    supportsTools: supportsModelTools(model),
     tags: Array.from(mergedTags),
     missing: false,
   };

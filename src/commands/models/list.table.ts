@@ -8,6 +8,7 @@ const MODEL_PAD = 42;
 const INPUT_PAD = 10;
 const CTX_PAD = 8;
 const LOCAL_PAD = 5;
+const TOOLS_PAD = 5;
 const AUTH_PAD = 5;
 
 export function printModelTable(
@@ -36,6 +37,7 @@ export function printModelTable(
     pad("Input", INPUT_PAD),
     pad("Ctx", CTX_PAD),
     pad("Local", LOCAL_PAD),
+    pad("Tools", TOOLS_PAD),
     pad("Auth", AUTH_PAD),
     "Tags",
   ].join(" ");
@@ -47,6 +49,8 @@ export function printModelTable(
     const ctxLabel = pad(formatTokenK(row.contextWindow), CTX_PAD);
     const localText = row.local === null ? "-" : row.local ? "yes" : "no";
     const localLabel = pad(localText, LOCAL_PAD);
+    const toolsText = row.supportsTools === null ? "-" : row.supportsTools ? "yes" : "no";
+    const toolsLabel = pad(toolsText, TOOLS_PAD);
     const authText = row.available === null ? "-" : row.available ? "yes" : "no";
     const authLabel = pad(authText, AUTH_PAD);
     const tagsLabel =
@@ -66,6 +70,11 @@ export function printModelTable(
       row.local === null ? theme.muted : row.local ? theme.success : theme.muted,
       localLabel,
     );
+    const coloredTools = colorize(
+      rich,
+      row.supportsTools === null ? theme.muted : row.supportsTools ? theme.success : theme.error,
+      toolsLabel,
+    );
     const coloredAuth = colorize(
       rich,
       row.available === null ? theme.muted : row.available ? theme.success : theme.error,
@@ -77,6 +86,7 @@ export function printModelTable(
       coloredInput,
       ctxLabel,
       coloredLocal,
+      coloredTools,
       coloredAuth,
       tagsLabel,
     ].join(" ");

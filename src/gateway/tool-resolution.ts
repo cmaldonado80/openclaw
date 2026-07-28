@@ -3,7 +3,7 @@ import { createOpenClawTools } from "../agents/openclaw-tools.js";
 import {
   resolveEffectiveToolPolicy,
   resolveGroupToolPolicy,
-  resolveSubagentToolPolicy,
+  resolveSubagentToolPolicyForSession,
 } from "../agents/pi-tools.policy.js";
 import {
   applyToolPolicyPipeline,
@@ -127,7 +127,7 @@ export function resolveGatewayScopedTools(params: {
     accountId: accountId ?? null,
   });
   const subagentPolicy = isSubagentSessionKey(params.sessionKey)
-    ? resolveSubagentToolPolicy(params.cfg)
+    ? resolveSubagentToolPolicyForSession(params.cfg, params.sessionKey)
     : undefined;
   const workspaceDir = resolveAgentWorkspaceDir(
     params.cfg,

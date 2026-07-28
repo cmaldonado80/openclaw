@@ -2,6 +2,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyExtraParamsToAgentMock,
+  acquireSessionWriteLockMock,
   contextEngineCompactMock,
   createOpenClawCodingToolsMock,
   ensureRuntimePluginsLoaded,
@@ -229,7 +230,12 @@ describe("compactEmbeddedPiSessionDirect hooks", () => {
       shouldUseWebSocketTransport: false,
       sessionId: "session-1",
       signal: new AbortController().signal,
-      effectiveModel: { provider: "openai", id: "fake", api: "responses", input: [] } as never,
+      effectiveModel: {
+        provider: "openai",
+        id: "fake",
+        api: "responses",
+        input: [],
+      } as never,
       resolvedApiKey: undefined,
       authStorage: { setRuntimeApiKey: vi.fn() },
       config: undefined,
@@ -321,7 +327,10 @@ describe("compactEmbeddedPiSessionDirect hooks", () => {
         messageCount: 2,
         tokenCount: 20,
       }),
-      expect.objectContaining({ sessionKey: "agent:main:session-1", messageProvider: "telegram" }),
+      expect.objectContaining({
+        sessionKey: "agent:main:session-1",
+        messageProvider: "telegram",
+      }),
     );
     expect(hookRunner.runAfterCompaction).toHaveBeenCalledWith(
       {
@@ -330,7 +339,10 @@ describe("compactEmbeddedPiSessionDirect hooks", () => {
         compactedCount: 1,
         sessionFile: "/tmp/session.jsonl",
       },
-      expect.objectContaining({ sessionKey: "agent:main:session-1", messageProvider: "telegram" }),
+      expect.objectContaining({
+        sessionKey: "agent:main:session-1",
+        messageProvider: "telegram",
+      }),
     );
   });
 
@@ -385,7 +397,9 @@ describe("compactEmbeddedPiSessionDirect hooks", () => {
       });
 
       expect(listener).toHaveBeenCalledTimes(1);
-      expect(listener).toHaveBeenCalledWith({ sessionFile: "/tmp/session.jsonl" });
+      expect(listener).toHaveBeenCalledWith({
+        sessionFile: "/tmp/session.jsonl",
+      });
     } finally {
       cleanup();
     }
@@ -511,7 +525,9 @@ describe("compactEmbeddedPiSessionDirect hooks", () => {
   it("fires post-compaction memory sync without awaiting it in async mode", async () => {
     const sync = vi.fn<PostCompactionSync>(async () => {});
     const managerRequested = createDeferred<void>();
-    const managerGate = createDeferred<{ manager: { sync: PostCompactionSync } }>();
+    const managerGate = createDeferred<{
+      manager: { sync: PostCompactionSync };
+    }>();
     const syncStarted = createDeferred<PostCompactionSyncParams>();
     sync.mockImplementation(async (params) => {
       syncStarted.resolve(params as PostCompactionSyncParams);
@@ -821,6 +837,25 @@ describe("compactEmbeddedPiSession hooks (ownsCompaction engine)", () => {
         }),
       }),
     );
+  });
+
+  it("coalesces manual compaction when another live owner holds the session lock", async () => {
+    acquireSessionWriteLockMock.mockRejectedValueOnce(
+      new Error(
+        `session file locked (timeout 60000ms): pid=${process.pid} ${TEST_SESSION_FILE}.lock`,
+      ),
+    );
+
+    const result = await compactEmbeddedPiSessionDirect(
+      wrappedCompactionArgs({ trigger: "manual" }),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      compacted: false,
+      reason: `session compaction already in progress (pid=${process.pid})`,
+    });
+    expect(sessionCompactImpl).not.toHaveBeenCalled();
   });
 
   it("does not fire after_compaction when compaction fails", async () => {

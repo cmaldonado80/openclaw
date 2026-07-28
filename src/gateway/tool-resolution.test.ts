@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => ({
     providerProfileAlsoAllow: undefined,
   })),
   resolveGroupToolPolicy: vi.fn(() => ({ allow: ["milenium-intelligence__*"] })),
-  resolveSubagentToolPolicy: vi.fn(() => ({ allow: ["subagents"] })),
+  resolveSubagentToolPolicyForSession: vi.fn(() => ({ allow: ["subagents"] })),
   resolveToolProfilePolicy: vi.fn(() => undefined),
 }));
 
@@ -39,7 +39,7 @@ vi.mock("../agents/openclaw-tools.js", () => ({
 vi.mock("../agents/pi-tools.policy.js", () => ({
   resolveEffectiveToolPolicy: mocks.resolveEffectiveToolPolicy,
   resolveGroupToolPolicy: mocks.resolveGroupToolPolicy,
-  resolveSubagentToolPolicy: mocks.resolveSubagentToolPolicy,
+  resolveSubagentToolPolicyForSession: mocks.resolveSubagentToolPolicyForSession,
 }));
 
 vi.mock("../agents/tool-policy-pipeline.js", () => ({
@@ -118,6 +118,10 @@ describe("resolveGatewayScopedTools", () => {
         groupChannel: "Milenium F&B",
         groupSpace: "menu-intel",
       }),
+    );
+    expect(mocks.resolveSubagentToolPolicyForSession).toHaveBeenCalledWith(
+      {},
+      "agent:rudy:subagent:child",
     );
     expect(mocks.createOpenClawTools).toHaveBeenCalledWith(
       expect.objectContaining({

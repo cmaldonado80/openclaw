@@ -4,7 +4,9 @@ import { clearAgentHarnesses } from "../harness/registry.js";
 type MockResolvedModel = {
   model: { provider: string; api: string; id: string; input: unknown[] };
   error: null;
-  authStorage: { setRuntimeApiKey: Mock<(provider?: string, apiKey?: string) => void> };
+  authStorage: {
+    setRuntimeApiKey: Mock<(provider?: string, apiKey?: string) => void>;
+  };
   modelRegistry: Record<string, never>;
 };
 type MockMemorySearchManager = {
@@ -89,9 +91,14 @@ export const resolveEmbeddedAgentStreamFnMock: Mock<
   (params?: unknown) => MockEmbeddedAgentStreamFn
 > = vi.fn((_params?: unknown) => vi.fn());
 export const registerProviderStreamForModelMock: Mock<(params?: unknown) => unknown> = vi.fn();
-export const applyExtraParamsToAgentMock = vi.fn(() => ({ effectiveExtraParams: {} }));
+export const applyExtraParamsToAgentMock = vi.fn(() => ({
+  effectiveExtraParams: {},
+}));
 export const resolveAgentTransportOverrideMock: Mock<(params?: unknown) => string | undefined> =
   vi.fn(() => undefined);
+export const acquireSessionWriteLockMock = vi.fn(async () => ({
+  release: vi.fn(async () => {}),
+}));
 
 export function resetCompactSessionStateMocks(): void {
   sanitizeSessionHistoryMock.mockReset();
@@ -122,7 +129,11 @@ export function resetCompactSessionStateMocks(): void {
     0,
     sessionMessages.length,
     { role: "user", content: "hello", timestamp: 1 },
-    { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 2 },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "hi" }],
+      timestamp: 2,
+    },
     {
       role: "toolResult",
       toolCallId: "t1",
@@ -141,6 +152,10 @@ export function resetCompactSessionStateMocks(): void {
   applyExtraParamsToAgentMock.mockReturnValue({ effectiveExtraParams: {} });
   resolveAgentTransportOverrideMock.mockReset();
   resolveAgentTransportOverrideMock.mockReturnValue(undefined);
+  acquireSessionWriteLockMock.mockReset();
+  acquireSessionWriteLockMock.mockResolvedValue({
+    release: vi.fn(async () => {}),
+  });
 }
 
 export function resetCompactHooksHarnessMocks(): void {
@@ -211,7 +226,10 @@ export async function loadCompactHooksHarness(): Promise<{
   }));
 
   vi.doMock("../../plugins/provider-runtime.js", () => ({
-    prepareProviderRuntimeAuth: vi.fn(async () => ({ resolvedApiKey: undefined })),
+    prepareProviderRuntimeAuth: vi.fn(async () => ({
+      resolvedApiKey: undefined,
+    })),
+    resolveProviderReasoningOutputModeWithPlugin: vi.fn(() => undefined),
     resolveProviderSystemPromptContribution: vi.fn(() => undefined),
     resolveProviderTextTransforms: vi.fn(() => undefined),
     transformProviderSystemPrompt: vi.fn(
@@ -318,7 +336,7 @@ export async function loadCompactHooksHarness(): Promise<{
   }));
 
   vi.doMock("../session-write-lock.js", () => ({
-    acquireSessionWriteLock: vi.fn(async () => ({ release: vi.fn(async () => {}) })),
+    acquireSessionWriteLock: acquireSessionWriteLockMock,
     resolveSessionLockMaxHoldFromTimeout: vi.fn(() => 0),
   }));
 
@@ -478,7 +496,10 @@ export async function loadCompactHooksHarness(): Promise<{
   vi.doMock("../agent-scope.js", () => ({
     listAgentEntries: vi.fn(() => []),
     resolveSessionAgentId: resolveSessionAgentIdMock,
-    resolveSessionAgentIds: vi.fn(() => ({ defaultAgentId: "main", sessionAgentId: "main" })),
+    resolveSessionAgentIds: vi.fn(() => ({
+      defaultAgentId: "main",
+      sessionAgentId: "main",
+    })),
   }));
 
   vi.doMock("../memory-search.js", () => ({

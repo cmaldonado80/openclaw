@@ -30,6 +30,7 @@ import {
   transformProviderSystemPrompt,
 } from "../../plugins/provider-runtime.js";
 import { isCronSessionKey, isSubagentSessionKey } from "../../routing/session-key.js";
+import { isPidAlive } from "../../shared/pid-alive.js";
 import { normalizeOptionalLowercaseString } from "../../shared/string-coerce.js";
 import { buildTtsSystemPromptHint } from "../../tts/tts.js";
 import { resolveUserPath } from "../../utils.js";
@@ -172,7 +173,9 @@ function prepareCompactionSessionAgent(params: {
   agentDir: string;
 }) {
   params.session.agent.streamFn = resolveEmbeddedAgentStreamFn({
-    currentStreamFn: resolveEmbeddedAgentBaseStreamFn({ session: params.session as never }),
+    currentStreamFn: resolveEmbeddedAgentBaseStreamFn({
+      session: params.session as never,
+    }),
     providerStreamFn: params.providerStreamFn as never,
     shouldUseWebSocketTransport: params.shouldUseWebSocketTransport,
     wsApiKey: params.wsApiKey,
@@ -295,6 +298,49 @@ function containsRealConversationMessages(messages: AgentMessage[]): boolean {
   return messages.some((message, index, allMessages) =>
     hasRealConversationContent(message, allMessages, index),
   );
+}
+
+const SESSION_LOCKED_WITH_PID_RE = /^session file locked \(timeout \d+ms\): pid=(\d+) (.+\.lock)$/;
+
+function resolveLiveLockCoalescedManualCompaction(params: {
+  reason: string;
+  trigger: "budget" | "overflow" | "manual";
+  runId: string;
+  sessionKey?: string;
+  sessionId: string;
+  diagId: string;
+  provider: string;
+  modelId: string;
+  attempt: number;
+  maxAttempts: number;
+  startedAt: number;
+}): EmbeddedPiCompactResult | null {
+  if (params.trigger !== "manual") {
+    return null;
+  }
+  const match = SESSION_LOCKED_WITH_PID_RE.exec(params.reason);
+  if (!match) {
+    return null;
+  }
+  const pid = Number(match[1]);
+  if (!Number.isSafeInteger(pid) || pid <= 0 || !isPidAlive(pid)) {
+    return null;
+  }
+  const lockPath = match[2];
+  const reason = `session compaction already in progress (pid=${pid})`;
+  log.info(
+    `[compaction-diag] end runId=${params.runId} sessionKey=${
+      params.sessionKey ?? params.sessionId
+    } diagId=${params.diagId} trigger=${params.trigger} provider=${params.provider}/${
+      params.modelId
+    } attempt=${params.attempt} maxAttempts=${params.maxAttempts} outcome=coalesced ` +
+      `reason=live-session-lock lockPath=${lockPath} durationMs=${Date.now() - params.startedAt}`,
+  );
+  return {
+    ok: true,
+    compacted: false,
+    reason,
+  };
 }
 
 /**
@@ -1179,8 +1225,25 @@ export async function compactEmbeddedPiSessionDirect(
       await sessionLock.release();
     }
   } catch (err) {
+    const formattedReason = formatErrorMessage(err);
+    const coalesced = resolveLiveLockCoalescedManualCompaction({
+      reason: formattedReason,
+      trigger,
+      runId,
+      sessionKey: params.sessionKey,
+      sessionId: params.sessionId,
+      diagId,
+      provider,
+      modelId,
+      attempt,
+      maxAttempts,
+      startedAt,
+    });
+    if (coalesced) {
+      return coalesced;
+    }
     const reason = resolveCompactionFailureReason({
-      reason: formatErrorMessage(err),
+      reason: formattedReason,
       safeguardCancelReason: consumeCompactionSafeguardCancelReason(compactionSessionManager),
     });
     return fail(reason);

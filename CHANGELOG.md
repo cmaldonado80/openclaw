@@ -6,6 +6,8 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Agents/subagents: allow a sandboxed requester to spawn specific unsandboxed host-ro targets via `subagents.allowUnsandboxedTargets`. `allowAgents` alone still cannot escape the sandbox inheritance guard. Host-ro detection treats exec as denied when `tools.deny` includes `exec` / `group:runtime`, even if global `tools.exec.security` is `full`.
+
 ### Fixes
 
 - fix(gateway): enforce localRoots containment on webchat audio embedding path [AI-assisted]. (#67298) Thanks @pgondhi987.

@@ -798,6 +798,8 @@ export const FIELD_LABELS: Record<string, string> = {
   "channels.mattermost.chatmode": "Mattermost Chat Mode",
   "channels.mattermost.oncharPrefixes": "Mattermost Onchar Prefixes",
   "channels.mattermost.requireMention": "Mattermost Require Mention",
+  "agents.list[].subagents.allowUnsandboxedTargets": "Allow Unsandboxed Spawn Targets",
+  "agents.defaults.subagents.allowUnsandboxedTargets": "Default Allow Unsandboxed Spawn Targets",
   "agents.list[].skills": "Agent Skill Filter",
   "agents.list[].identity.avatar": "Agent Avatar",
   "agents.list[].heartbeat.suppressToolErrorWarnings":

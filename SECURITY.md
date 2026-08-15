@@ -258,6 +258,7 @@ For threat model + hardening guidance (including `openclaw security audit --deep
 
 - Keep `sessions_spawn` denied unless you explicitly need delegated runs.
 - Keep `agents.list[].subagents.allowAgents` narrow, and only include agents with sandbox settings you trust.
+- `allowAgents` alone cannot escape the sandbox inheritance guard. Use `subagents.allowUnsandboxedTargets` only for host-ro routers you intentionally allow a sandboxed requester to spawn.
 - When delegation must stay sandboxed, call `sessions_spawn` with `sandbox: "require"` (default is `inherit`).
   - `sandbox: "require"` rejects the spawn unless the target child runtime is sandboxed.
   - This prevents a less-restricted session from delegating work into an unsandboxed child by mistake.

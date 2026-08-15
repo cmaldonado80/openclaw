@@ -136,7 +136,8 @@ Allowlist:
 
 - `agents.list[].subagents.allowAgents`: list of agent ids that can be targeted via `agentId` (`["*"]` to allow any). Default: only the requester agent.
 - `agents.defaults.subagents.allowAgents`: default target-agent allowlist used when the requester agent does not set its own `subagents.allowAgents`.
-- Sandbox inheritance guard: if the requester session is sandboxed, `sessions_spawn` rejects targets that would run unsandboxed.
+- `agents.list[].subagents.allowUnsandboxedTargets` / `agents.defaults.subagents.allowUnsandboxedTargets`: optional exception list for sandboxed requesters that need to spawn specific unsandboxed host-ro targets. The target id must also pass `allowAgents`. Empty or omitted keeps the reject. `allowAgents` alone is not an escape.
+- Sandbox inheritance guard: if the requester session is sandboxed, `sessions_spawn` rejects targets that would run unsandboxed unless the target id is listed in `allowUnsandboxedTargets` and the target is a host-ro router (`sandbox.mode: "off"`, `workspaceAccess: "ro"`, and exec denied via `tools.exec.security: "deny"` or `tools.deny` including `exec` / `group:runtime`). `sandbox: "require"` still requires a sandboxed child. ACP host spawn (`runtime: "acp"`) stays rejected.
 - `agents.defaults.subagents.requireAgentId` / `agents.list[].subagents.requireAgentId`: when true, block `sessions_spawn` calls that omit `agentId` (forces explicit profile selection). Default: false.
 
 Discovery:

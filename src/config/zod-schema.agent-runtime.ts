@@ -815,6 +815,12 @@ export const AgentEntrySchema = z
     subagents: z
       .object({
         allowAgents: z.array(z.string()).optional(),
+        allowUnsandboxedTargets: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Allow a sandboxed requester to spawn these unsandboxed target agent ids. Targets must also pass allowAgents. Empty/omitted keeps the sandbox inheritance reject.",
+          ),
         model: z
           .union([
             z.string(),

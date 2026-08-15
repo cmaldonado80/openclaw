@@ -198,6 +198,10 @@ export const FIELD_HELP: Record<string, string> = {
     "Optional default skill allowlist inherited by agents that omit agents.list[].skills. Omit for unrestricted skills, set [] to give inheriting agents no skills, and remember explicit agents.list[].skills replaces this default instead of merging with it.",
   "agents.list":
     "Explicit list of configured agents with IDs and optional overrides for model, tools, identity, and workspace. Keep IDs stable over time so bindings, approvals, and session routing remain deterministic.",
+  "agents.list[].subagents.allowUnsandboxedTargets":
+    "Allow a sandboxed requester to spawn these unsandboxed target agent ids. Targets must also pass allowAgents. Empty or omitted keeps the current reject. Use this only for host-ro routers (sandbox.mode=off, workspaceAccess=ro, and exec denied via tools.exec.security=deny or tools.deny including exec/group:runtime). allowAgents alone cannot escape the sandbox.",
+  "agents.defaults.subagents.allowUnsandboxedTargets":
+    "Default unsandboxed-target exception list used when the requester agent omits subagents.allowUnsandboxedTargets. Targets must still pass allowAgents. Empty or omitted keeps the reject. Use this only for host-ro routers (exec denied via tools.exec.security=deny or tools.deny), not host-exec shells.",
   "agents.list[].thinkingDefault":
     "Optional per-agent default thinking level. Overrides agents.defaults.thinkingDefault for this agent when no per-message or session override is set.",
   "agents.list[].reasoningDefault":

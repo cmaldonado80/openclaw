@@ -354,6 +354,12 @@ export type AgentDefaultsConfig = {
   subagents?: {
     /** Default allowlist of target agent ids for sessions_spawn. Use "*" to allow any. */
     allowAgents?: string[];
+    /**
+     * Default unsandboxed-target exception list for sandboxed requesters.
+     * Used when the requester agent omits `subagents.allowUnsandboxedTargets`.
+     * Targets must still pass `allowAgents`. Empty/omitted keeps the reject.
+     */
+    allowUnsandboxedTargets?: string[];
     /** Max concurrent sub-agent runs (global lane: "subagent"). Default: 1. */
     maxConcurrent?: number;
     /** Maximum depth allowed for sessions_spawn chains. Default behavior: 1 (no nested spawns). */

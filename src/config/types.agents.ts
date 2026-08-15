@@ -93,6 +93,13 @@ export type AgentConfig = {
   subagents?: {
     /** Allow spawning sub-agents under other agent ids. Use "*" to allow any. */
     allowAgents?: string[];
+    /**
+     * Allow a sandboxed requester to spawn these unsandboxed target agent ids.
+     * Targets must also pass `allowAgents` (or `*`). Empty/omitted keeps the
+     * sandbox inheritance reject. This list is the deliberate host-lane
+     * exception; `allowAgents` alone cannot escape the sandbox.
+     */
+    allowUnsandboxedTargets?: string[];
     /** Per-agent default model for spawned sub-agents (string or {primary,fallbacks}). */
     model?: AgentModelConfig;
     /** Require explicit agentId in sessions_spawn (no default same-as-caller). */

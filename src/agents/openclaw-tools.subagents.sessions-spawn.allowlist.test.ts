@@ -165,8 +165,155 @@ describe("subagent spawn allowlist + sandbox guards", () => {
     });
     const result = await spawn({ agentId: "research" });
     expect(result).toMatchObject({ status: "forbidden" });
-    expect(result.error ?? "").toContain("Sandboxed sessions cannot spawn unsandboxed subagents.");
+    expect(result.error).toBe(
+      "Sandboxed sessions cannot spawn unsandboxed subagents. Set a sandboxed target agent or use the same agent runtime.",
+    );
     expect(hoisted.callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("forbids sandboxed unsandboxed-target spawns when allowUnsandboxedTargets omits the target", async () => {
+    setConfig({
+      agents: {
+        defaults: { sandbox: { mode: "all" } },
+        list: [
+          {
+            id: "main",
+            subagents: {
+              allowAgents: ["research"],
+              allowUnsandboxedTargets: ["other"],
+            },
+          },
+          {
+            id: "research",
+            sandbox: { mode: "off", workspaceAccess: "ro" },
+            tools: { exec: { security: "deny" } },
+          },
+        ],
+      },
+    });
+    const result = await spawn({ agentId: "research" });
+    expect(result).toMatchObject({ status: "forbidden" });
+    expect(result.error).toBe(
+      "Sandboxed sessions cannot spawn unsandboxed subagents. Set a sandboxed target agent or use the same agent runtime.",
+    );
+    expect(hoisted.callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("allows sandboxed requesters to spawn host-ro targets listed in allowAgents and allowUnsandboxedTargets", async () => {
+    setConfig({
+      agents: {
+        defaults: { sandbox: { mode: "all" } },
+        list: [
+          {
+            id: "main",
+            subagents: {
+              allowAgents: ["research"],
+              allowUnsandboxedTargets: ["research"],
+            },
+          },
+          {
+            id: "research",
+            sandbox: { mode: "off", workspaceAccess: "ro" },
+            tools: { exec: { security: "deny" } },
+          },
+        ],
+      },
+    });
+    const result = await spawn({ agentId: "research" });
+    expect(result).toMatchObject({
+      status: "accepted",
+      childSessionKey: expect.stringMatching(/^agent:research:subagent:/),
+    });
+  });
+
+  it("falls back to default allowUnsandboxedTargets when the requester agent omits it", async () => {
+    setConfig({
+      agents: {
+        defaults: {
+          sandbox: { mode: "all" },
+          subagents: { allowUnsandboxedTargets: ["research"] },
+        },
+        list: [
+          { id: "main", subagents: { allowAgents: ["research"] } },
+          {
+            id: "research",
+            sandbox: { mode: "off", workspaceAccess: "ro" },
+            tools: { exec: { security: "deny" } },
+          },
+        ],
+      },
+    });
+    const result = await spawn({ agentId: "research" });
+    expect(result).toMatchObject({
+      status: "accepted",
+      childSessionKey: expect.stringMatching(/^agent:research:subagent:/),
+    });
+  });
+
+  it("still rejects allowUnsandboxedTargets that are not in allowAgents", async () => {
+    setConfig({
+      agents: {
+        defaults: { sandbox: { mode: "all" } },
+        list: [
+          {
+            id: "main",
+            subagents: {
+              allowAgents: ["alpha"],
+              allowUnsandboxedTargets: ["research"],
+            },
+          },
+          {
+            id: "research",
+            sandbox: { mode: "off", workspaceAccess: "ro" },
+            tools: { exec: { security: "deny" } },
+          },
+        ],
+      },
+    });
+    const result = await spawn({ agentId: "research" });
+    expect(result).toMatchObject({ status: "forbidden" });
+    expect(result.error ?? "").toContain("agentId is not allowed for sessions_spawn");
+    expect(hoisted.callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("does not treat allowUnsandboxedTargets as permission for host-exec targets", async () => {
+    setConfig({
+      agents: {
+        defaults: { sandbox: { mode: "all" } },
+        list: [
+          {
+            id: "main",
+            subagents: {
+              allowAgents: ["research"],
+              allowUnsandboxedTargets: ["research"],
+            },
+          },
+          { id: "research", sandbox: { mode: "off" } },
+        ],
+      },
+    });
+    const result = await spawn({ agentId: "research" });
+    expect(result).toMatchObject({ status: "forbidden" });
+    expect(result.error).toBe(
+      "Sandboxed sessions cannot spawn unsandboxed subagents. Set a sandboxed target agent or use the same agent runtime.",
+    );
+    expect(hoisted.callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves unsandboxed requesters unchanged when spawning unsandboxed targets", async () => {
+    setConfig({
+      agents: {
+        list: [
+          { id: "main", subagents: { allowAgents: ["research"] } },
+          { id: "research", sandbox: { mode: "off" } },
+        ],
+      },
+    });
+    const result = await spawn({ agentId: "research" });
+    expect(result).toMatchObject({
+      status: "accepted",
+      childSessionKey: expect.stringMatching(/^agent:research:subagent:/),
+    });
   });
 
   it('forbids sandbox="require" when target runtime is unsandboxed', async () => {
@@ -175,6 +322,32 @@ describe("subagent spawn allowlist + sandbox guards", () => {
         list: [
           { id: "main", subagents: { allowAgents: ["research"] } },
           { id: "research", sandbox: { mode: "off" } },
+        ],
+      },
+    });
+    const result = await spawn({ agentId: "research", sandbox: "require" });
+    expect(result).toMatchObject({ status: "forbidden" });
+    expect(result.error ?? "").toContain('sandbox="require"');
+    expect(hoisted.callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps sandbox="require" rejected even when allowUnsandboxedTargets lists the target', async () => {
+    setConfig({
+      agents: {
+        defaults: { sandbox: { mode: "all" } },
+        list: [
+          {
+            id: "main",
+            subagents: {
+              allowAgents: ["research"],
+              allowUnsandboxedTargets: ["research"],
+            },
+          },
+          {
+            id: "research",
+            sandbox: { mode: "off", workspaceAccess: "ro" },
+            tools: { exec: { security: "deny" } },
+          },
         ],
       },
     });

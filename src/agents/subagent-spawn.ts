@@ -64,6 +64,43 @@ export type { SpawnSubagentMode, SpawnSubagentSandboxMode } from "./subagent-spa
 
 export { decodeStrictBase64 };
 
+const SANDBOXED_UNSANDBOXED_SPAWN_ERROR =
+  "Sandboxed sessions cannot spawn unsandboxed subagents. Set a sandboxed target agent or use the same agent runtime.";
+
+function resolveRequesterSubagentList(
+  cfg: OpenClawConfig,
+  requesterAgentId: string,
+  key: "allowAgents" | "allowUnsandboxedTargets",
+): string[] {
+  return (
+    resolveAgentConfig(cfg, requesterAgentId)?.subagents?.[key] ??
+    cfg.agents?.defaults?.subagents?.[key] ??
+    []
+  );
+}
+
+function isAllowlistedAgentId(allowList: string[], targetAgentId: string): boolean {
+  if (allowList.some((value) => value.trim() === "*")) {
+    return true;
+  }
+  const normalizedTargetId = normalizeLowercaseStringOrEmpty(targetAgentId);
+  const allowSet = new Set(
+    allowList
+      .filter((value) => value.trim() && value.trim() !== "*")
+      .map((value) => normalizeLowercaseStringOrEmpty(normalizeAgentId(value))),
+  );
+  return allowSet.has(normalizedTargetId);
+}
+
+function isHostRoUnsandboxedSpawnTarget(cfg: OpenClawConfig, targetAgentId: string): boolean {
+  const target = resolveAgentConfig(cfg, targetAgentId);
+  const sandboxMode = target?.sandbox?.mode ?? cfg.agents?.defaults?.sandbox?.mode ?? "off";
+  const workspaceAccess =
+    target?.sandbox?.workspaceAccess ?? cfg.agents?.defaults?.sandbox?.workspaceAccess ?? "none";
+  const execSecurity = target?.tools?.exec?.security ?? cfg.tools?.exec?.security;
+  return sandboxMode === "off" && workspaceAccess === "ro" && execSecurity === "deny";
+}
+
 type SubagentSpawnDeps = {
   callGateway: typeof callGateway;
   getGlobalHookRunner: () => SubagentLifecycleHookRunner | null;
@@ -450,18 +487,13 @@ export async function spawnSubagentDirect(
   }
   const targetAgentId = requestedAgentId ? normalizeAgentId(requestedAgentId) : requesterAgentId;
   if (targetAgentId !== requesterAgentId) {
-    const allowAgents =
-      resolveAgentConfig(cfg, requesterAgentId)?.subagents?.allowAgents ??
-      cfg?.agents?.defaults?.subagents?.allowAgents ??
-      [];
-    const allowAny = allowAgents.some((value) => value.trim() === "*");
-    const normalizedTargetId = normalizeLowercaseStringOrEmpty(targetAgentId);
-    const allowSet = new Set(
-      allowAgents
-        .filter((value) => value.trim() && value.trim() !== "*")
-        .map((value) => normalizeLowercaseStringOrEmpty(normalizeAgentId(value))),
-    );
-    if (!allowAny && !allowSet.has(normalizedTargetId)) {
+    const allowAgents = resolveRequesterSubagentList(cfg, requesterAgentId, "allowAgents");
+    if (!isAllowlistedAgentId(allowAgents, targetAgentId)) {
+      const allowSet = new Set(
+        allowAgents
+          .filter((value) => value.trim() && value.trim() !== "*")
+          .map((value) => normalizeLowercaseStringOrEmpty(normalizeAgentId(value))),
+      );
       const allowedText = allowSet.size > 0 ? Array.from(allowSet).join(", ") : "none";
       return {
         status: "forbidden",
@@ -478,19 +510,26 @@ export async function spawnSubagentDirect(
     cfg,
     sessionKey: childSessionKey,
   });
-  if (!childRuntime.sandboxed && (requesterRuntime.sandboxed || sandboxMode === "require")) {
-    if (requesterRuntime.sandboxed) {
-      return {
-        status: "forbidden",
-        error:
-          "Sandboxed sessions cannot spawn unsandboxed subagents. Set a sandboxed target agent or use the same agent runtime.",
-      };
-    }
+  if (!childRuntime.sandboxed && sandboxMode === "require") {
     return {
       status: "forbidden",
       error:
         'sessions_spawn sandbox="require" needs a sandboxed target runtime. Pick a sandboxed agentId or use sandbox="inherit".',
     };
+  }
+  if (!childRuntime.sandboxed && requesterRuntime.sandboxed) {
+    const allowUnsandboxedTargets = resolveRequesterSubagentList(
+      cfg,
+      requesterAgentId,
+      "allowUnsandboxedTargets",
+    );
+    const allowlistedUnsandboxed = isAllowlistedAgentId(allowUnsandboxedTargets, targetAgentId);
+    if (!allowlistedUnsandboxed || !isHostRoUnsandboxedSpawnTarget(cfg, targetAgentId)) {
+      return {
+        status: "forbidden",
+        error: SANDBOXED_UNSANDBOXED_SPAWN_ERROR,
+      };
+    }
   }
   const childDepth = callerDepth + 1;
   const spawnedByKey = requesterInternalKey;

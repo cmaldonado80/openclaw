@@ -4919,6 +4919,15 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                       type: "string",
                     },
                   },
+                  allowUnsandboxedTargets: {
+                    description:
+                      "Default unsandboxed-target exception list for sandboxed requesters when the requester agent omits subagents.allowUnsandboxedTargets. Targets must still pass allowAgents. Empty/omitted keeps the reject.",
+                    type: "array",
+                    items: {
+                      type: "string",
+                    },
+                    title: "Default Allow Unsandboxed Spawn Targets",
+                  },
                   maxConcurrent: {
                     type: "integer",
                     exclusiveMinimum: 0,
@@ -6204,6 +6213,15 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                       items: {
                         type: "string",
                       },
+                    },
+                    allowUnsandboxedTargets: {
+                      description:
+                        "Allow a sandboxed requester to spawn these unsandboxed target agent ids. Targets must also pass allowAgents. Empty/omitted keeps the sandbox inheritance reject.",
+                      type: "array",
+                      items: {
+                        type: "string",
+                      },
+                      title: "Allow Unsandboxed Spawn Targets",
                     },
                     model: {
                       anyOf: [
@@ -26689,6 +26707,16 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       label: "Channel Model Overrides",
       help: "Map provider -> channel id -> model override (values are provider/model or aliases).",
       tags: ["network", "channels"],
+    },
+    "agents.list[].subagents.allowUnsandboxedTargets": {
+      label: "Allow Unsandboxed Spawn Targets",
+      help: "Allow a sandboxed requester to spawn these unsandboxed target agent ids. Targets must also pass allowAgents. Empty or omitted keeps the current reject. Use this only for host-ro routers (sandbox.mode=off, tools.exec.security=deny, workspaceAccess=ro). allowAgents alone cannot escape the sandbox.",
+      tags: ["security", "access", "advanced"],
+    },
+    "agents.defaults.subagents.allowUnsandboxedTargets": {
+      label: "Default Allow Unsandboxed Spawn Targets",
+      help: "Default unsandboxed-target exception list used when the requester agent omits subagents.allowUnsandboxedTargets. Targets must still pass allowAgents. Empty or omitted keeps the reject. Use this only for host-ro routers, not host-exec shells.",
+      tags: ["security", "access", "advanced"],
     },
     "agents.list[].skills": {
       label: "Agent Skill Filter",

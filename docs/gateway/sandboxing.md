@@ -441,6 +441,13 @@ Common pitfalls:
 
 ## Tool policy + escape hatches
 
+If the requester session is sandboxed, `sessions_spawn` rejects unsandboxed
+targets unless the target id is listed in both `subagents.allowAgents` and
+`subagents.allowUnsandboxedTargets` and the target is a host-ro router
+(`sandbox.mode: "off"`, `tools.exec.security: "deny"`, `workspaceAccess: "ro"`).
+`sandbox: "require"` still requires a sandboxed child. ACP host spawn
+(`runtime: "acp"`) stays rejected from sandboxed sessions.
+
 Tool allow/deny policies still apply before sandbox rules. If a tool is denied
 globally or per-agent, sandboxing doesn’t bring it back.
 

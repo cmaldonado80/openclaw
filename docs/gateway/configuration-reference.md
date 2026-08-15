@@ -1663,7 +1663,8 @@ scripts/sandbox-browser-setup.sh   # optional browser image
 - `identity.avatar`: workspace-relative path, `http(s)` URL, or `data:` URI.
 - `identity` derives defaults: `ackReaction` from `emoji`, `mentionPatterns` from `name`/`emoji`.
 - `subagents.allowAgents`: allowlist of agent ids for `sessions_spawn` (`["*"]` = any; default: same agent only).
-- Sandbox inheritance guard: if the requester session is sandboxed, `sessions_spawn` rejects targets that would run unsandboxed.
+- `subagents.allowUnsandboxedTargets`: optional exception list so a sandboxed requester can spawn specific unsandboxed host-ro targets. The target id must also pass `allowAgents`. Empty or omitted keeps the reject. `allowAgents` alone is not an escape.
+- Sandbox inheritance guard: if the requester session is sandboxed, `sessions_spawn` rejects targets that would run unsandboxed unless the target id is listed in `allowUnsandboxedTargets` and the target is a host-ro router (`sandbox.mode: "off"`, `tools.exec.security: "deny"`, `workspaceAccess: "ro"`). `sandbox: "require"` still requires a sandboxed child. ACP host spawn (`runtime: "acp"`) stays rejected.
 - `subagents.requireAgentId`: when true, block `sessions_spawn` calls that omit `agentId` (forces explicit profile selection; default: false).
 
 ---
@@ -2373,6 +2374,7 @@ Notes:
 
 - `model`: default model for spawned sub-agents. If omitted, sub-agents inherit the caller's model.
 - `allowAgents`: default allowlist of target agent ids for `sessions_spawn` when the requester agent does not set its own `subagents.allowAgents` (`["*"]` = any; default: same agent only).
+- `allowUnsandboxedTargets`: default exception list for sandboxed requesters that need to spawn specific unsandboxed host-ro targets when the requester agent omits `subagents.allowUnsandboxedTargets`. Targets must still pass `allowAgents`. Empty or omitted keeps the reject.
 - `runTimeoutSeconds`: default timeout (seconds) for `sessions_spawn` when the tool call omits `runTimeoutSeconds`. `0` means no timeout.
 - Per-subagent tool policy: `tools.subagents.tools.allow` / `tools.subagents.tools.deny`.
 

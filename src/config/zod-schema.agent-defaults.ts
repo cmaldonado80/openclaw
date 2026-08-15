@@ -216,6 +216,12 @@ export const AgentDefaultsSchema = z
     subagents: z
       .object({
         allowAgents: z.array(z.string()).optional(),
+        allowUnsandboxedTargets: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Default unsandboxed-target exception list for sandboxed requesters when the requester agent omits subagents.allowUnsandboxedTargets. Targets must still pass allowAgents. Empty/omitted keeps the reject.",
+          ),
         maxConcurrent: z.number().int().positive().optional(),
         maxSpawnDepth: z
           .number()

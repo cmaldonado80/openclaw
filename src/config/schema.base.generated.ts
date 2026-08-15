@@ -26710,12 +26710,12 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
     },
     "agents.list[].subagents.allowUnsandboxedTargets": {
       label: "Allow Unsandboxed Spawn Targets",
-      help: "Allow a sandboxed requester to spawn these unsandboxed target agent ids. Targets must also pass allowAgents. Empty or omitted keeps the current reject. Use this only for host-ro routers (sandbox.mode=off, tools.exec.security=deny, workspaceAccess=ro). allowAgents alone cannot escape the sandbox.",
+      help: "Allow a sandboxed requester to spawn these unsandboxed target agent ids. Targets must also pass allowAgents. Empty or omitted keeps the current reject. Use this only for host-ro routers (sandbox.mode=off, workspaceAccess=ro, and exec denied via tools.exec.security=deny or tools.deny including exec/group:runtime). allowAgents alone cannot escape the sandbox.",
       tags: ["security", "access", "advanced"],
     },
     "agents.defaults.subagents.allowUnsandboxedTargets": {
       label: "Default Allow Unsandboxed Spawn Targets",
-      help: "Default unsandboxed-target exception list used when the requester agent omits subagents.allowUnsandboxedTargets. Targets must still pass allowAgents. Empty or omitted keeps the reject. Use this only for host-ro routers, not host-exec shells.",
+      help: "Default unsandboxed-target exception list used when the requester agent omits subagents.allowUnsandboxedTargets. Targets must still pass allowAgents. Empty or omitted keeps the reject. Use this only for host-ro routers (exec denied via tools.exec.security=deny or tools.deny), not host-exec shells.",
       tags: ["security", "access", "advanced"],
     },
     "agents.list[].skills": {

@@ -444,7 +444,8 @@ Common pitfalls:
 If the requester session is sandboxed, `sessions_spawn` rejects unsandboxed
 targets unless the target id is listed in both `subagents.allowAgents` and
 `subagents.allowUnsandboxedTargets` and the target is a host-ro router
-(`sandbox.mode: "off"`, `tools.exec.security: "deny"`, `workspaceAccess: "ro"`).
+(`sandbox.mode: "off"`, `workspaceAccess: "ro"`, and exec denied via
+`tools.exec.security: "deny"` or `tools.deny` including `exec` / `group:runtime`).
 `sandbox: "require"` still requires a sandboxed child. ACP host spawn
 (`runtime: "acp"`) stays rejected from sandboxed sessions.
 

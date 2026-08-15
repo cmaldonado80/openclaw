@@ -1130,7 +1130,7 @@ If you allow session tools, treat delegated sub-agent runs as another boundary d
 
 - Deny `sessions_spawn` unless the agent truly needs delegation.
 - Keep `agents.defaults.subagents.allowAgents` and any per-agent `agents.list[].subagents.allowAgents` overrides restricted to known-safe target agents.
-- Do not treat `allowAgents` as permission to escape the sandbox. A sandboxed requester can spawn an unsandboxed target only when that id is also listed in `subagents.allowUnsandboxedTargets` and the target is a host-ro router.
+- Do not treat `allowAgents` as permission to escape the sandbox. A sandboxed requester can spawn an unsandboxed target only when that id is also listed in `subagents.allowUnsandboxedTargets` and the target is a host-ro router (sandbox off, workspace read-only, and exec denied via `tools.exec.security` or `tools.deny`).
 - For any workflow that must remain sandboxed, call `sessions_spawn` with `sandbox: "require"` (default is `inherit`).
 - `sandbox: "require"` fails fast when the target child runtime is not sandboxed.
 

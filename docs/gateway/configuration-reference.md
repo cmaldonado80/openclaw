@@ -1664,7 +1664,7 @@ scripts/sandbox-browser-setup.sh   # optional browser image
 - `identity` derives defaults: `ackReaction` from `emoji`, `mentionPatterns` from `name`/`emoji`.
 - `subagents.allowAgents`: allowlist of agent ids for `sessions_spawn` (`["*"]` = any; default: same agent only).
 - `subagents.allowUnsandboxedTargets`: optional exception list so a sandboxed requester can spawn specific unsandboxed host-ro targets. The target id must also pass `allowAgents`. Empty or omitted keeps the reject. `allowAgents` alone is not an escape.
-- Sandbox inheritance guard: if the requester session is sandboxed, `sessions_spawn` rejects targets that would run unsandboxed unless the target id is listed in `allowUnsandboxedTargets` and the target is a host-ro router (`sandbox.mode: "off"`, `tools.exec.security: "deny"`, `workspaceAccess: "ro"`). `sandbox: "require"` still requires a sandboxed child. ACP host spawn (`runtime: "acp"`) stays rejected.
+- Sandbox inheritance guard: if the requester session is sandboxed, `sessions_spawn` rejects targets that would run unsandboxed unless the target id is listed in `allowUnsandboxedTargets` and the target is a host-ro router (`sandbox.mode: "off"`, `workspaceAccess: "ro"`, and exec denied via `tools.exec.security: "deny"` or `tools.deny` including `exec` / `group:runtime`). `sandbox: "require"` still requires a sandboxed child. ACP host spawn (`runtime: "acp"`) stays rejected.
 - `subagents.requireAgentId`: when true, block `sessions_spawn` calls that omit `agentId` (forces explicit profile selection; default: false).
 
 ---

@@ -58,6 +58,7 @@ import {
   type SpawnSubagentMode,
   type SpawnSubagentSandboxMode,
 } from "./subagent-spawn.types.js";
+import { expandToolGroups } from "./tool-policy.js";
 
 export { SUBAGENT_SPAWN_MODES, SUBAGENT_SPAWN_SANDBOX_MODES } from "./subagent-spawn.types.js";
 export type { SpawnSubagentMode, SpawnSubagentSandboxMode } from "./subagent-spawn.types.js";
@@ -92,13 +93,52 @@ function isAllowlistedAgentId(allowList: string[], targetAgentId: string): boole
   return allowSet.has(normalizedTargetId);
 }
 
+function toolPolicyDeniesExec(tools?: {
+  deny?: string[];
+  allow?: string[];
+  alsoAllow?: string[];
+}): boolean {
+  if (!expandToolGroups(tools?.deny).includes("exec")) {
+    return false;
+  }
+  // Deny wins in the real policy engine unless exec is explicitly re-allowed.
+  return !expandToolGroups([...(tools?.allow ?? []), ...(tools?.alsoAllow ?? [])]).includes("exec");
+}
+
+function isExecDeniedForHostRoTarget(
+  cfg: OpenClawConfig,
+  target: ReturnType<typeof resolveAgentConfig>,
+): boolean {
+  const agentSecurity = target?.tools?.exec?.security;
+  if (agentSecurity === "deny") {
+    return true;
+  }
+  // Inherit an explicit default deny only. Do not treat a missing per-agent
+  // value as global "full"/"allowlist" when the tool is also denied.
+  if (agentSecurity === undefined && cfg.tools?.exec?.security === "deny") {
+    return true;
+  }
+  if (toolPolicyDeniesExec(target?.tools)) {
+    return true;
+  }
+  if (!toolPolicyDeniesExec(cfg.tools)) {
+    return false;
+  }
+  const agentReallowsExec = expandToolGroups([
+    ...(target?.tools?.allow ?? []),
+    ...(target?.tools?.alsoAllow ?? []),
+  ]).includes("exec");
+  return !agentReallowsExec;
+}
+
 function isHostRoUnsandboxedSpawnTarget(cfg: OpenClawConfig, targetAgentId: string): boolean {
   const target = resolveAgentConfig(cfg, targetAgentId);
   const sandboxMode = target?.sandbox?.mode ?? cfg.agents?.defaults?.sandbox?.mode ?? "off";
   const workspaceAccess =
     target?.sandbox?.workspaceAccess ?? cfg.agents?.defaults?.sandbox?.workspaceAccess ?? "none";
-  const execSecurity = target?.tools?.exec?.security ?? cfg.tools?.exec?.security;
-  return sandboxMode === "off" && workspaceAccess === "ro" && execSecurity === "deny";
+  return (
+    sandboxMode === "off" && workspaceAccess === "ro" && isExecDeniedForHostRoTarget(cfg, target)
+  );
 }
 
 type SubagentSpawnDeps = {

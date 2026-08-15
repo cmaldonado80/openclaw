@@ -276,6 +276,36 @@ describe("subagent spawn allowlist + sandbox guards", () => {
     expect(hoisted.callGatewayMock).not.toHaveBeenCalled();
   });
 
+  it("allows host-ro targets that deny exec via tools.deny when global exec.security is full", async () => {
+    setConfig({
+      tools: {
+        exec: { security: "full" },
+      },
+      agents: {
+        defaults: { sandbox: { mode: "all" } },
+        list: [
+          {
+            id: "main",
+            subagents: {
+              allowAgents: ["research"],
+              allowUnsandboxedTargets: ["research"],
+            },
+          },
+          {
+            id: "research",
+            sandbox: { mode: "off", workspaceAccess: "ro" },
+            tools: { deny: ["exec"] },
+          },
+        ],
+      },
+    });
+    const result = await spawn({ agentId: "research" });
+    expect(result).toMatchObject({
+      status: "accepted",
+      childSessionKey: expect.stringMatching(/^agent:research:subagent:/),
+    });
+  });
+
   it("does not treat allowUnsandboxedTargets as permission for host-exec targets", async () => {
     setConfig({
       agents: {
@@ -289,6 +319,33 @@ describe("subagent spawn allowlist + sandbox guards", () => {
             },
           },
           { id: "research", sandbox: { mode: "off" } },
+        ],
+      },
+    });
+    const result = await spawn({ agentId: "research" });
+    expect(result).toMatchObject({ status: "forbidden" });
+    expect(result.error).toBe(
+      "Sandboxed sessions cannot spawn unsandboxed subagents. Set a sandboxed target agent or use the same agent runtime.",
+    );
+    expect(hoisted.callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("still forbids host-ro workspace targets when exec is actually allowed", async () => {
+    setConfig({
+      tools: {
+        exec: { security: "full" },
+      },
+      agents: {
+        defaults: { sandbox: { mode: "all" } },
+        list: [
+          {
+            id: "main",
+            subagents: {
+              allowAgents: ["research"],
+              allowUnsandboxedTargets: ["research"],
+            },
+          },
+          { id: "research", sandbox: { mode: "off", workspaceAccess: "ro" } },
         ],
       },
     });
